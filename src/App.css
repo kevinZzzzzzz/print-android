@@ -237,6 +237,57 @@ button.primary {
   }
 }
 
+/* USB 设备列表样式 */
+.usb-devices-list {
+  margin-top: 15px;
+  text-align: left;
+}
+
+.usb-device-item {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.usb-device-item:hover {
+  background: #f8f9fa;
+  border-color: #646cff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.device-name {
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.device-name strong {
+  font-size: 1.1em;
+  color: #646cff;
+}
+
+.device-details {
+  font-size: 0.9em;
+  color: #666;
+}
+
+.device-details p {
+  margin: 5px 0;
+  padding: 2px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.device-details p:last-child {
+  border-bottom: none;
+}
+
+.device-details p:first-child {
+  margin-top: 0;
+}
+
 @media (max-width: 768px) {
   .container {
     padding: 10px;
@@ -248,5 +299,41 @@ button.primary {
   
   button {
     padding: 0.6rem 1.2rem;
+  }
+  
+  .usb-device-item {
+    padding: 12px;
+  }
+  
+  .device-details {
+    font-size: 0.85em;
+  }
+}
+
+/* 拍照状态样式 */
+.capture-status {
+  margin: 15px 0;
+  padding: 12px;
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.capture-status p {
+  margin: 0;
+  color: #1976d2;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  .capture-status {
+    background-color: #1a237e;
+    border-left-color: #3f51b5;
+  }
+  
+  .capture-status p {
+    color: #90caf9;
   }
 }
