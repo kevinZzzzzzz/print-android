@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# 保留 MainActivity 以及其所有成员，防止混淆导致 JNI 调用失败
+-keep class com.print_android.app.MainActivity {
+    *;
+}
