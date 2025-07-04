@@ -65,7 +65,10 @@ function App() {
       setLoading(false);
     }
   };
-
+  const handlePrintWindow = () => {
+    console.log('点击打印', window, window.print);
+    window.print();
+  }
   // 打印文档
   const handlePrint = async () => {
     try {
@@ -194,6 +197,9 @@ function App() {
         <h2>打印机设置</h2>
         <button onClick={fetchPrinters} disabled={loading}>
           刷新打印机列表
+        </button>
+        <button onClick={handlePrintWindow}>
+          点击打印
         </button>
         <div className="form-group">
           <label>选择打印机:</label>

@@ -61,19 +61,25 @@ class MainActivity : TauriActivity() {
         try {
             val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
             Log.d("UsbDevices", "getConnectedUsbDevices called")
-            val deviceList = usbManager.deviceList
+            val deviceList = usbManager.getDeviceList()
             
             val devicesArray = JSONArray()
             // 打印devicesArray
             Log.d("UsbDevices", "devicesArray: $devicesArray")
             
             for ((_, device) in deviceList) {
+              Log.d("USB", """
+                  Device Name: ${device.deviceName}
+                  Vendor ID: ${device.vendorId}   // 厂商ID（如佳博打印机为 1137）
+                  Product ID: ${device.productId}  // 产品ID
+                  Interface Count: ${device.interfaceCount}
+              """)
                 val deviceInfo = JSONObject().apply {
                     put("device_name", device.deviceName ?: "Unknown Device")
-                    put("vendor_id", device.vendorId)
-                    put("product_id", device.productId)
-                    put("device_class", device.deviceClass)
-                    put("device_protocol", device.deviceProtocol)
+                    put("vendor_id", device.vendorId ?: "Unknown")
+                    put("product_id", device.productId ?: "Unknown")
+                    put("device_class", device.deviceClass ?: "Unknown")
+                    put("device_protocol", device.deviceProtocol ?: "Unknown")
                     put("manufacturer_name", device.manufacturerName ?: "")
                     put("product_name", device.productName ?: "")
                     put("serial_number", device.serialNumber ?: "")

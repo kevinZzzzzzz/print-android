@@ -91,6 +91,7 @@ async fn call_android_usb_method() -> Result<Vec<UsbDeviceInfo>, String> {
     
     // 获取当前的JNI环境和Activity
     let ctx = ndk_context::android_context();
+    println!("ctx: {:?}", ctx);
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
         .map_err(|e| format!("Failed to get JavaVM: {}", e))?;
     
@@ -112,6 +113,7 @@ async fn call_android_usb_method() -> Result<Vec<UsbDeviceInfo>, String> {
         .map_err(|e| format!("Failed to get string: {}", e))?
         .to_string_lossy()
         .to_string();
+    println!("json_string: {:?}", json_string);
     
     parse_usb_devices_json(&json_string)
 }
