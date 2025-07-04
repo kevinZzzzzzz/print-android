@@ -35,21 +35,21 @@ fn greet(name: &str) -> String {
     format!("你好, {}! 欢迎使用打印应用!", name)
 }
 
-#[tauri::command]
-async fn print_document(_content: String, _silent: bool) -> Result<String, String> {
-    #[cfg(target_os = "android")]
-    {
-        // Android 端的打印功能将通过 Android 原生代码处理
-        // 这里只是 Rust 端的接口，实际实现在 Android 端
-        Ok("打印请求已发送".to_string())
-    }
+// #[tauri::command]
+// async fn print_document(_content: String, _silent: bool) -> Result<String, String> {
+//     #[cfg(target_os = "android")]
+//     {
+//         // Android 端的打印功能将通过 Android 原生代码处理
+//         // 这里只是 Rust 端的接口，实际实现在 Android 端
+//         Ok("打印请求已发送".to_string())
+//     }
 
-    #[cfg(not(target_os = "android"))]
-    {
-        // 桌面端打印功能，可以通过系统API实现
-        Err("桌面端暂不支持打印功能".to_string())
-    }
-}
+//     #[cfg(not(target_os = "android"))]
+//     {
+//         // 桌面端打印功能，可以通过系统API实现
+//         Err("桌面端暂不支持打印功能".to_string())
+//     }
+// }
 
 #[tauri::command]
 async fn get_connected_printers() -> Result<Vec<PrinterInfo>, String> {
@@ -73,7 +73,7 @@ async fn get_connected_printers() -> Result<Vec<PrinterInfo>, String> {
 async fn get_usb_devices() -> Result<Vec<UsbDeviceInfo>, String> {
     #[cfg(target_os = "android")]
     {
-
+        println!("get_usb_devices called");
 
         // 通过JNI调用Android的getConnectedUsbDevices方法
         call_android_usb_method().await
@@ -291,16 +291,57 @@ fn parse_photo_json(json_str: &str) -> Result<PhotoInfo, String> {
     }
 }
 
+// 帮我写一个调用打印的方法
+#[tauri::command]
+async fn print_document() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        call_android_print_method().await?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("桌面端暂不支持打印功能".to_string())
+    }
+}
+
+#[cfg(target_os = "android")]
+async fn call_android_print_method() -> Result<(), String> {
+    use jni::objects::JObject;
+    
+    // 获取当前的JNI环境和Activity
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("Failed to get JavaVM: {}", e))?;
+    
+    let mut env = vm.attach_current_thread()
+        .map_err(|e| format!("Failed to attach thread: {}", e))?;
+    
+    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    
+    // 调用Android的print方法
+    env.call_method(
+        &activity,
+        "print",
+        "()Ljava/lang/String;",
+        &[]
+    ).map_err(|e| format!("Failed to call print method: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             greet,
-            print_document,
+            // print_document,
             get_connected_printers,
             get_usb_devices,
             take_photo,
-            get_photo_result
+            get_photo_result,
+            print_document
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

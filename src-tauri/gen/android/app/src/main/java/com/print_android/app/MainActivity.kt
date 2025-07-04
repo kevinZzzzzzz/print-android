@@ -1,5 +1,6 @@
 package com.print_android.app
 
+import android.app.PendingIntent;
 import android.os.Bundle
 import android.content.Context
 import android.hardware.usb.UsbManager
@@ -58,39 +59,46 @@ class MainActivity : TauriActivity() {
     // 获取连接的USB设备列表
     @JvmName("getConnectedUsbDevices")
     fun getConnectedUsbDevices(): String {
+      // 打印输出日志到终端
+      Log.println(Log.INFO, "getConnectedUsbDevices", "getConnectedUsbDevices called");
         try {
             val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-            Log.d("UsbDevices", "getConnectedUsbDevices called")
-            val deviceList = usbManager.getDeviceList()
+            Log.println(Log.INFO,"UsbDevices", "getConnectedUsbDevices called")
+            val deviceList = usbManager.deviceList
             
             val devicesArray = JSONArray()
             // 打印devicesArray
-            Log.d("UsbDevices", "devicesArray: $devicesArray")
+            Log.println(Log.INFO,"UsbDevices", "devicesArray: $devicesArray")
             
-            for ((_, device) in deviceList) {
-              Log.d("USB", """
+            for (device in deviceList.values) {
+              Log.println(Log.INFO,"USB", """
                   Device Name: ${device.deviceName}
                   Vendor ID: ${device.vendorId}   // 厂商ID（如佳博打印机为 1137）
                   Product ID: ${device.productId}  // 产品ID
                   Interface Count: ${device.interfaceCount}
               """)
-                val deviceInfo = JSONObject().apply {
-                    put("device_name", device.deviceName ?: "Unknown Device")
-                    put("vendor_id", device.vendorId ?: "Unknown")
-                    put("product_id", device.productId ?: "Unknown")
-                    put("device_class", device.deviceClass ?: "Unknown")
-                    put("device_protocol", device.deviceProtocol ?: "Unknown")
-                    put("manufacturer_name", device.manufacturerName ?: "")
-                    put("product_name", device.productName ?: "")
-                    put("serial_number", device.serialNumber ?: "")
+                // 判断manufacturer_name 是 HP 开头的
+                if (device.manufacturerName?.startsWith("HP") == true) {
+                  val permissionIntent = PendingIntent.getBroadcast(this, 0, Intent("com.usb.printer.USB_PERMISSION"), 
+                  PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                usbManager.requestPermission(device, permissionIntent)
+                    val deviceInfo = JSONObject().apply {
+                        put("device_name", device.deviceName ?: "Unknown Device")
+                        put("vendor_id", device.vendorId ?: "Unknown")
+                        put("product_id", device.productId ?: "Unknown")
+                        put("device_class", device.deviceClass ?: "Unknown")
+                        put("device_protocol", device.deviceProtocol ?: "Unknown")
+                        put("manufacturer_name", device.manufacturerName ?: "")
+                        put("product_name", device.productName ?: "")
+                        put("serial_number", device.serialNumber ?: "")
+                    }
+                    devicesArray.put(deviceInfo)
                 }
-                devicesArray.put(deviceInfo)
             }
-            
-            Log.d("UsbDevices", "Found ${devicesArray.length()} USB devices")
+            Log.println(Log.INFO,"UsbDevices", "Found ${devicesArray.length()} USB devices")
             return devicesArray.toString()
         } catch (e: Exception) {
-            Log.e("UsbDevices", "Error getting USB devices: ${e.message}")
+            Log.println(Log.INFO,"UsbDevices", "Error getting USB devices: ${e.message}")
             return "[]"
         }
     }
@@ -204,6 +212,43 @@ class MainActivity : TauriActivity() {
         }
     }
     
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
+    @JvmName("print")
+    fun print(): String {
+        try {
+            // 使用更安全的路径获取方式（Android 10+ 推荐）
+            val storageDir = Environment.getExternalStorageDirectory().absolutePath
+            Log.println(Log.INFO, storageDir, "storageDir------------")
+            val mFile = File("$storageDir/test.pdf")
+    
+            if (mFile.exists()) {
+                // 字符串模板简化拼接
+                val fileInfo = "filepath: ${mFile.absolutePath}\n" +
+                            "canRead? ${mFile.canRead()}  canWrite? ${mFile.canWrite()}"
+                
+                Log.e(TAG, "print: $fileInfo")
+    
+                // 修正源文件路径（使用实际检测到的路径）
+                val sourcePath = mFile.absolutePath
+                val execStr = "cp $sourcePath /dev/bus/usb/009/003"
+                
+                // 执行命令（需 root 权限）
+                val exeCommand = ExeCommand(this, true)
+                exeCommand.run(execStr, 5000)
+                return "打印成功"
+            } else {
+                Log.e(TAG, "File not found: ${mFile.absolutePath}")
+                return "文件不存在：${mFile.absolutePath}"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "打印失败: ${e.message}")
+            return "打印失败: ${e.message}"
+        }
+    }
+    
     // 创建图片文件
     private fun createImageFile(): File? {
         return try {
@@ -254,7 +299,6 @@ class MainActivity : TauriActivity() {
         }
         return errorResult.toString()
     }
-    
     // 处理权限请求结果
     override fun onRequestPermissionsResult(
         requestCode: Int,
