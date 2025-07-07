@@ -45,6 +45,7 @@ function App() {
   const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [message, setMessage] = useState<string>("")
+  const [printLogs, setPrintLogs] = useState<string[]>([])
 
   // 获取连接的打印机列表
   const fetchPrinters = async () => {
@@ -69,16 +70,38 @@ function App() {
     }
   }
   const handlePrintWindow = async () => {
-    console.log("点击打印", window)
-    await invoke<string>("print_document")
+    try {
+      console.log("点击打印", window)
+      setPrintLogs([]) // 清空之前的日志
+      
+      const response = await invoke<string>("print_document")
+      const result = JSON.parse(response)
+      
+      console.log("打印结果:", result)
+      setMessage(result.message || "打印成功")
+      if (result.logs) {
+        setPrintLogs(result.logs)
+      }
+    } catch (error) {
+      console.error("打印失败:", error)
+      setMessage(`打印失败: ${error}`)
+    }
   }
   // 打印文档
   const handlePrint = async () => {
     try {
       setLoading(true)
       setMessage("正在打印...")
-      await invoke<string>("print_document")
-      setMessage("打印成功")
+      setPrintLogs([]) // 清空之前的日志
+      
+      const response = await invoke<string>("print_document")
+      const result = JSON.parse(response)
+      
+      console.log("打印结果:", result)
+      setMessage(result.message || "打印成功")
+      if (result.logs) {
+        setPrintLogs(result.logs)
+      }
     } catch (error) {
       console.error("打印失败:", error)
       setMessage(`打印失败: ${error}`)
@@ -182,6 +205,11 @@ function App() {
     }
   }
 
+  const handleClearLogs = () => {
+    setPrintLogs([]);
+    setMessage("");
+  };
+
   // 组件挂载时获取打印机列表
   useEffect(() => {
     fetchPrinters()
@@ -239,7 +267,7 @@ function App() {
         </div>
         <button
           onClick={handlePrint}
-          disabled={loading || printers.length === 0}
+          // disabled={loading || printers.length === 0}
         >
           打印文档
         </button>
@@ -311,6 +339,54 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* 打印日志区域 */}
+      {printLogs.length > 0 && (
+        <div className="card">
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '10px'
+          }}>
+            <h2>打印日志</h2>
+            <button
+              onClick={handleClearLogs}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#ff4d4f',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+              onMouseOver={e => e.currentTarget.style.backgroundColor = '#ff7875'}
+              onMouseOut={e => e.currentTarget.style.backgroundColor = '#ff4d4f'}
+            >
+              清空日志
+            </button>
+          </div>
+          <div className="log-container" style={{
+            maxHeight: '300px',
+            overflowY: 'auto',
+            padding: '10px',
+            backgroundColor: '#f5f5f5',
+            borderRadius: '4px',
+            marginTop: '10px'
+          }}>
+            {printLogs.map((log, index) => (
+              <div key={index} style={{
+                padding: '4px 0',
+                borderBottom: '1px solid #eee',
+                fontSize: '14px',
+                fontFamily: 'monospace'
+              }}>
+                {log}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 状态消息 */}
       {message && <div className="message">{message}</div>}

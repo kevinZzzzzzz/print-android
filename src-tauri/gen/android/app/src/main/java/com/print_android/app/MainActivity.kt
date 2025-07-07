@@ -1,10 +1,13 @@
 package com.print_android.app
 
-import android.app.PendingIntent;
+import android.app.PendingIntent
 import android.os.Bundle
 import android.content.Context
 import android.hardware.usb.UsbManager
 import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbInterface
+import android.hardware.usb.UsbConstants
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,19 +15,14 @@ import android.content.Intent
 import android.provider.MediaStore
 import android.app.Activity
 import android.graphics.Bitmap
-import java.io.ByteArrayOutputStream
 import android.util.Base64
 import android.graphics.BitmapFactory
-import java.io.File
-import java.io.FileOutputStream
+import java.io.*
 import android.net.Uri
 import android.content.ContentResolver
-import java.io.InputStream
 import androidx.core.content.FileProvider
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
-
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.ActivityResultLauncher
 import android.os.Environment
@@ -32,12 +30,15 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.Manifest
+import android.os.Build
+import android.provider.Settings
 
 class MainActivity : TauriActivity() {
     private var currentPhotoPath: String? = null
     private var isPhotoInProgress: Boolean = false
     private val CAMERA_PERMISSION_REQUEST_CODE = 100
-    
+    private val USB_PERMISSION_REQUEST_CODE = 101
+
     private val takePictureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -83,11 +84,11 @@ class MainActivity : TauriActivity() {
                   PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
                 usbManager.requestPermission(device, permissionIntent)
                     val deviceInfo = JSONObject().apply {
-                        put("device_name", device.deviceName ?: "Unknown Device")
-                        put("vendor_id", device.vendorId ?: "Unknown")
-                        put("product_id", device.productId ?: "Unknown")
-                        put("device_class", device.deviceClass ?: "Unknown")
-                        put("device_protocol", device.deviceProtocol ?: "Unknown")
+                        put("device_name", device.deviceName)
+                        put("vendor_id", device.vendorId)
+                        put("product_id", device.productId)
+                        put("device_class", device.deviceClass)
+                        put("device_protocol", device.deviceProtocol)
                         put("manufacturer_name", device.manufacturerName ?: "")
                         put("product_name", device.productName ?: "")
                         put("serial_number", device.serialNumber ?: "")
@@ -214,38 +215,233 @@ class MainActivity : TauriActivity() {
     
     companion object {
         private const val TAG = "MainActivity"
+        private const val ACTION_USB_PERMISSION = "com.print_android.app.USB_PERMISSION"
     }
 
     @JvmName("print")
     fun print(): String {
+        val logs = mutableListOf<String>()
+        fun addLog(message: String) {
+            Log.d(TAG, message)
+            logs.add(message)
+        }
+
+        var connection: UsbDeviceConnection? = null
+        var usbInterface: UsbInterface? = null
+
         try {
-            // 使用更安全的路径获取方式（Android 10+ 推荐）
-            val storageDir = Environment.getExternalStorageDirectory().absolutePath
-            Log.println(Log.INFO, storageDir, "storageDir------------")
-            val mFile = File("$storageDir/test.pdf")
-    
-            if (mFile.exists()) {
-                // 字符串模板简化拼接
-                val fileInfo = "filepath: ${mFile.absolutePath}\n" +
-                            "canRead? ${mFile.canRead()}  canWrite? ${mFile.canWrite()}"
-                
-                Log.e(TAG, "print: $fileInfo")
-    
-                // 修正源文件路径（使用实际检测到的路径）
-                val sourcePath = mFile.absolutePath
-                val execStr = "cp $sourcePath /dev/bus/usb/009/003"
-                
-                // 执行命令（需 root 权限）
-                val exeCommand = ExeCommand(this, true)
-                exeCommand.run(execStr, 5000)
-                return "打印成功"
+            addLog("开始打印1")
+            // 检查存储权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    // 请求所有文件访问权限
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        addCategory("android.intent.category.DEFAULT")
+                        data = Uri.parse("package:${applicationContext.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(intent)
+                    return createJsonResponse("需要文件访问权限，请在设置中授权后重试", logs)
+                }
             } else {
-                Log.e(TAG, "File not found: ${mFile.absolutePath}")
-                return "文件不存在：${mFile.absolutePath}"
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
+                    != PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        ),
+                        1001
+                    )
+                    return createJsonResponse("需要存储权限，请授权后重试", logs)
+                }
+            }
+
+            // 获取USB管理器
+            val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+            
+            // 获取目标打印机设备
+            val devicePath = "/dev/bus/usb/009/003"
+            var targetDevice: UsbDevice? = null
+            
+            // 查找目标打印机
+            for (device in usbManager.deviceList.values) {
+                addLog("发现USB设备: ${device.deviceName}, VendorId: ${device.vendorId}, ProductId: ${device.productId}")
+                if (device.deviceName == devicePath) {
+                    targetDevice = device
+                    break
+                }
+            }
+            
+            if (targetDevice == null) {
+                return createJsonResponse("未找到指定的打印机设备：$devicePath", logs)
+            }
+
+            addLog("找到打印机设备: ${targetDevice.deviceName}")
+            addLog("制造商: ${targetDevice.manufacturerName}, 产品: ${targetDevice.productName}")
+            
+            // 检查是否有USB设备权限
+            if (!usbManager.hasPermission(targetDevice)) {
+                val permissionIntent = PendingIntent.getBroadcast(
+                    this, 
+                    0, 
+                    Intent(ACTION_USB_PERMISSION),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                usbManager.requestPermission(targetDevice, permissionIntent)
+                return createJsonResponse("需要USB设备权限，请授权后重试", logs)
+            }
+
+            try {
+                // 确保之前的连接已经关闭
+                connection?.close()
+                usbInterface?.let { intf ->
+                    connection?.releaseInterface(intf)
+                }
+
+                // 打开USB连接
+                connection = usbManager.openDevice(targetDevice)
+                if (connection == null) {
+                    return createJsonResponse("无法连接到打印机设备", logs)
+                }
+
+                // 读取PDF文件
+                val file = File(Environment.getExternalStorageDirectory(), "test.pdf")
+                if (!file.exists()) {
+                    return createJsonResponse("文件不存在：${file.absolutePath}", logs)
+                }
+
+                val inputStream = FileInputStream(file)
+                val fileBytes = inputStream.readBytes()
+                inputStream.close()
+
+                addLog("成功读取文件，大小: ${fileBytes.size} 字节")
+
+                // 获取USB接口
+                usbInterface = targetDevice.getInterface(0)
+                addLog("USB接口信息: interfaceClass=${usbInterface.interfaceClass}, " +
+                      "interfaceSubclass=${usbInterface.interfaceSubclass}, " +
+                      "interfaceProtocol=${usbInterface.interfaceProtocol}")
+
+                // 获取所有端点信息
+                for (i in 0 until usbInterface.endpointCount) {
+                    val endpoint = usbInterface.getEndpoint(i)
+                    addLog("端点 $i: type=${endpoint.type}, direction=${endpoint.direction}, " +
+                          "address=${endpoint.address}, attributes=${endpoint.attributes}")
+                }
+
+                // 查找输出端点（用于发送数据到打印机）
+                var outEndpoint = usbInterface.getEndpoint(0)
+                for (i in 0 until usbInterface.endpointCount) {
+                    val endpoint = usbInterface.getEndpoint(i)
+                    if (endpoint.direction == UsbConstants.USB_DIR_OUT) {
+                        outEndpoint = endpoint
+                        break
+                    }
+                }
+                
+                // 声明USB接口
+                if (!connection.claimInterface(usbInterface, true)) {
+                    connection.close()
+                    return createJsonResponse("无法声明USB接口", logs)
+                }
+
+                addLog("准备发送数据到打印机...")
+                
+                // 重置打印机
+                val resetCommand = byteArrayOf(0x1B, 0x40)  // ESC @ 命令，重置打印机
+                val resetResult = connection.bulkTransfer(outEndpoint, resetCommand, resetCommand.size, 1000)
+                if (resetResult < 0) {
+                    addLog("打印机重置失败")
+                }
+
+                // 等待打印机重置
+                Thread.sleep(100)
+
+                // 初始化打印机
+                val initCommand = byteArrayOf(0x1B, 0x40)  // ESC @ 命令，初始化打印机
+                val initResult = connection.bulkTransfer(outEndpoint, initCommand, initCommand.size, 1000)
+                if (initResult < 0) {
+                    connection.releaseInterface(usbInterface)
+                    connection.close()
+                    return createJsonResponse("打印机初始化失败", logs)
+                }
+
+                // 等待打印机就绪
+                Thread.sleep(100)
+
+                // 检查打印机状态
+                val statusCommand = byteArrayOf(0x1D, 0x72, 0x01)  // GS r n 命令，获取打印机状态
+                // val statusBuffer = ByteArray(1)
+                val statusResult = connection.bulkTransfer(outEndpoint, statusCommand, statusCommand.size, 1000)
+                if (statusResult < 0) {
+                    addLog("获取打印机状态失败，尝试继续打印")
+                }
+
+                // 分块发送数据
+                val CHUNK_SIZE = 1024
+                var offset = 0
+                while (offset < fileBytes.size) {
+                    val chunk = fileBytes.slice(offset..kotlin.math.min(offset + CHUNK_SIZE - 1, fileBytes.size - 1)).toByteArray()
+                    val result = connection.bulkTransfer(outEndpoint, chunk, chunk.size, 5000)
+                    
+                    if (result < 0) {
+                        connection.releaseInterface(usbInterface)
+                        connection.close()
+                        return createJsonResponse("数据传输失败，已发送 $offset 字节", logs)
+                    }
+                    
+                    offset += chunk.size
+                    addLog("已发送: $offset / ${fileBytes.size} 字节")
+
+                    // 每次传输后短暂等待，避免打印机缓冲区溢出
+                    Thread.sleep(10)
+                }
+                
+                // 发送换页命令
+                val formFeedCommand = byteArrayOf(0x0C)  // FF 命令，换页
+                connection.bulkTransfer(outEndpoint, formFeedCommand, formFeedCommand.size, 1000)
+                
+                // 等待打印完成
+                Thread.sleep(500)
+                
+                // 释放资源
+                connection.releaseInterface(usbInterface)
+                connection.close()
+                connection = null
+                usbInterface = null
+                
+                addLog("打印数据发送完成")
+                return createJsonResponse("打印数据已成功发送到打印机", logs)
+            } catch (e: Exception) {
+                addLog("打印过程出错: ${e.message}")
+                // 确保资源被释放
+                try {
+                    usbInterface?.let { intf ->
+                        connection?.releaseInterface(intf)
+                    }
+                    connection?.close()
+                } catch (closeError: Exception) {
+                    addLog("关闭连接时出错: ${closeError.message}")
+                }
+                return createJsonResponse("打印失败: ${e.message}", logs)
+            } finally {
+                // 最后确保资源被释放
+                try {
+                    usbInterface?.let { intf ->
+                        connection?.releaseInterface(intf)
+                    }
+                    connection?.close()
+                } catch (closeError: Exception) {
+                    addLog("关闭连接时出错: ${closeError.message}")
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "打印失败: ${e.message}")
-            return "打印失败: ${e.message}"
+            addLog("打印初始化失败: ${e.message}")
+            return createJsonResponse("打印初始化失败: ${e.message}", logs)
         }
     }
     
@@ -316,5 +512,13 @@ class MainActivity : TauriActivity() {
                 }
             }
         }
+    }
+
+    private fun createJsonResponse(message: String, logs: List<String>): String {
+        return JSONObject().apply {
+            put("message", message)
+            put("logs", JSONArray(logs))
+            put("timestamp", System.currentTimeMillis())
+        }.toString()
     }
 } 

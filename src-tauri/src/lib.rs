@@ -293,11 +293,10 @@ fn parse_photo_json(json_str: &str) -> Result<PhotoInfo, String> {
 
 // 帮我写一个调用打印的方法
 #[tauri::command]
-async fn print_document() -> Result<(), String> {
+async fn print_document() -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
-        call_android_print_method().await?;
-        Ok(())
+        call_android_print_method().await
     }
 
     #[cfg(not(target_os = "android"))]
@@ -307,7 +306,7 @@ async fn print_document() -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
-async fn call_android_print_method() -> Result<(), String> {
+async fn call_android_print_method() -> Result<String, String> {
     use jni::objects::JObject;
     
     // 获取当前的JNI环境和Activity
@@ -319,16 +318,30 @@ async fn call_android_print_method() -> Result<(), String> {
         .map_err(|e| format!("Failed to attach thread: {}", e))?;
     
     let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    println!("开始调用打印方法");
     
-    // 调用Android的print方法
-    env.call_method(
+    // 调用Android的print方法并获取返回值
+    let result = env.call_method(
         &activity,
         "print",
         "()Ljava/lang/String;",
         &[]
     ).map_err(|e| format!("Failed to call print method: {}", e))?;
 
-    Ok(())
+    // 获取返回的字符串
+    let jstring_result = result.l()
+        .map_err(|e| format!("Failed to get result object: {}", e))?;
+    
+    let response = if jstring_result.is_null() {
+        "打印完成".to_string()
+    } else {
+        env.get_string(&jstring_result.into())
+            .map_err(|e| format!("Failed to get response string: {}", e))?
+            .to_string_lossy()
+            .to_string()
+    };
+
+    Ok(response)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
