@@ -293,10 +293,12 @@ fn parse_photo_json(json_str: &str) -> Result<PhotoInfo, String> {
 
 // 帮我写一个调用打印的方法
 #[tauri::command]
-async fn print_document() -> Result<String, String> {
+async fn print_document(device_path: String) -> Result<String, String> {
+    println!("调用打印方法，设备路径: {}", device_path);
+
     #[cfg(target_os = "android")]
     {
-        call_android_print_method().await
+        call_android_print_method(device_path).await
     }
 
     #[cfg(not(target_os = "android"))]
@@ -306,8 +308,8 @@ async fn print_document() -> Result<String, String> {
 }
 
 #[cfg(target_os = "android")]
-async fn call_android_print_method() -> Result<String, String> {
-    use jni::objects::JObject;
+async fn call_android_print_method(device_path: String) -> Result<String, String> {
+    use jni::objects::{JObject, JString};
     
     // 获取当前的JNI环境和Activity
     let ctx = ndk_context::android_context();
@@ -320,12 +322,16 @@ async fn call_android_print_method() -> Result<String, String> {
     let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
     println!("开始调用打印方法");
     
+    // 将 Rust String 转换为 Java String
+    let j_device_path = env.new_string(&device_path)
+        .map_err(|e| format!("Failed to create Java string: {}", e))?;
+    
     // 调用Android的print方法并获取返回值
     let result = env.call_method(
         &activity,
         "print",
-        "()Ljava/lang/String;",
-        &[]
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        &[(&j_device_path).into()]
     ).map_err(|e| format!("Failed to call print method: {}", e))?;
 
     // 获取返回的字符串

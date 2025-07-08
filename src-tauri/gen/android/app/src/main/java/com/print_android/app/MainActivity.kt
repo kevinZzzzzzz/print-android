@@ -3,6 +3,7 @@ package com.print_android.app
 import android.app.PendingIntent
 import android.os.Bundle
 import android.content.Context
+import android.print.PrintManager
 import android.hardware.usb.UsbManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
@@ -39,6 +40,10 @@ class MainActivity : TauriActivity() {
     private val CAMERA_PERMISSION_REQUEST_CODE = 100
     private val USB_PERMISSION_REQUEST_CODE = 101
 
+    private fun addLog(tag: String, message: String) {
+        Log.d(tag, message)
+    }
+
     private val takePictureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -60,29 +65,33 @@ class MainActivity : TauriActivity() {
     // 获取连接的USB设备列表
     @JvmName("getConnectedUsbDevices")
     fun getConnectedUsbDevices(): String {
-      // 打印输出日志到终端
-      Log.println(Log.INFO, "getConnectedUsbDevices", "getConnectedUsbDevices called");
+        // 打印输出日志到终端
+        addLog("getConnectedUsbDevices", "getConnectedUsbDevices called")
         try {
             val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-            Log.println(Log.INFO,"UsbDevices", "getConnectedUsbDevices called")
+            addLog("UsbDevices", "getConnectedUsbDevices called")
             val deviceList = usbManager.deviceList
             
             val devicesArray = JSONArray()
             // 打印devicesArray
-            Log.println(Log.INFO,"UsbDevices", "devicesArray: $devicesArray")
+            addLog("UsbDevices", "devicesArray: $devicesArray")
             
             for (device in deviceList.values) {
-              Log.println(Log.INFO,"USB", """
-                  Device Name: ${device.deviceName}
-                  Vendor ID: ${device.vendorId}   // 厂商ID（如佳博打印机为 1137）
-                  Product ID: ${device.productId}  // 产品ID
-                  Interface Count: ${device.interfaceCount}
-              """)
+                addLog("USB", """
+                    Device Name: ${device.deviceName}
+                    Vendor ID: ${device.vendorId}   // 厂商ID（如佳博打印机为 1137）
+                    Product ID: ${device.productId}  // 产品ID
+                    Interface Count: ${device.interfaceCount}
+                """)
+                
                 // 判断manufacturer_name 是 HP 开头的
                 if (device.manufacturerName?.startsWith("HP") == true) {
-                  val permissionIntent = PendingIntent.getBroadcast(this, 0, Intent("com.usb.printer.USB_PERMISSION"), 
-                  PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-                usbManager.requestPermission(device, permissionIntent)
+                    val permissionIntent = PendingIntent.getBroadcast(
+                        this, 0,
+                        Intent("com.usb.printer.USB_PERMISSION"),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                    )
+                    usbManager.requestPermission(device, permissionIntent)
                     val deviceInfo = JSONObject().apply {
                         put("device_name", device.deviceName)
                         put("vendor_id", device.vendorId)
@@ -96,10 +105,11 @@ class MainActivity : TauriActivity() {
                     devicesArray.put(deviceInfo)
                 }
             }
-            Log.println(Log.INFO,"UsbDevices", "Found ${devicesArray.length()} USB devices")
+            
+            addLog("UsbDevices", "Found ${devicesArray.length()} USB devices")
             return devicesArray.toString()
         } catch (e: Exception) {
-            Log.println(Log.INFO,"UsbDevices", "Error getting USB devices: ${e.message}")
+            addLog("UsbDevices", "Error getting USB devices: ${e.message}")
             return "[]"
         }
     }
@@ -219,7 +229,7 @@ class MainActivity : TauriActivity() {
     }
 
     @JvmName("print")
-    fun print(): String {
+    fun print(device_path: String): String {
         val logs = mutableListOf<String>()
         fun addLog(message: String) {
             Log.d(TAG, message)
@@ -261,10 +271,23 @@ class MainActivity : TauriActivity() {
             }
 
             // 获取USB管理器
-            val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+          val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
             
+            val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
+            addLog("获取打印服务, ${printManager}, ${printManager.printJobs.size}")
+            for (job in printManager.printJobs) {
+              val jobId = job.id
+              val jobName = job.info.label
+              // val jobState = when (job.info.state) {
+              //     PrintJobInfo.STATE_QUEUED -> "排队中"
+              //     PrintJobInfo.STATE_STARTED -> "打印中"
+              //     PrintJobInfo.STATE_COMPLETED -> "已完成"
+              //     else -> "异常状态"
+              // }
+              addLog("PrintQueue 任务ID: ${jobId} | 名称: ${jobName} | 状态: ${job.info.state}")
+          }
             // 获取目标打印机设备
-            val devicePath = "/dev/bus/usb/009/003"
+            val devicePath = device_path
             var targetDevice: UsbDevice? = null
             
             // 查找目标打印机
@@ -297,10 +320,12 @@ class MainActivity : TauriActivity() {
 
             try {
                 // 确保之前的连接已经关闭
-                connection?.close()
                 usbInterface?.let { intf ->
                     connection?.releaseInterface(intf)
                 }
+                connection?.close()
+                connection = null
+                usbInterface = null
 
                 // 打开USB连接
                 connection = usbManager.openDevice(targetDevice)
@@ -335,6 +360,7 @@ class MainActivity : TauriActivity() {
 
                 // 查找输出端点（用于发送数据到打印机）
                 var outEndpoint = usbInterface.getEndpoint(0)
+                addLog("输出端点: ${outEndpoint} ${UsbConstants.USB_DIR_OUT}")
                 for (i in 0 until usbInterface.endpointCount) {
                     val endpoint = usbInterface.getEndpoint(i)
                     if (endpoint.direction == UsbConstants.USB_DIR_OUT) {
@@ -342,6 +368,7 @@ class MainActivity : TauriActivity() {
                         break
                     }
                 }
+                addLog("输出端点1: ${outEndpoint}")
                 
                 // 声明USB接口
                 if (!connection.claimInterface(usbInterface, true)) {
@@ -353,7 +380,10 @@ class MainActivity : TauriActivity() {
                 
                 // 重置打印机
                 val resetCommand = byteArrayOf(0x1B, 0x40)  // ESC @ 命令，重置打印机
+                addLog("重置打印机 ${resetCommand} ${resetCommand.size} ")
+
                 val resetResult = connection.bulkTransfer(outEndpoint, resetCommand, resetCommand.size, 1000)
+                addLog("重置打印机 ${resetResult} ")
                 if (resetResult < 0) {
                     addLog("打印机重置失败")
                 }
@@ -375,8 +405,11 @@ class MainActivity : TauriActivity() {
 
                 // 检查打印机状态
                 val statusCommand = byteArrayOf(0x1D, 0x72, 0x01)  // GS r n 命令，获取打印机状态
+                addLog("检查打印机状态 ${statusCommand} ${statusCommand.size}")
                 // val statusBuffer = ByteArray(1)
                 val statusResult = connection.bulkTransfer(outEndpoint, statusCommand, statusCommand.size, 1000)
+                addLog("检查打印机状态111 ${statusResult}")
+
                 if (statusResult < 0) {
                     addLog("获取打印机状态失败，尝试继续打印")
                 }
@@ -398,21 +431,21 @@ class MainActivity : TauriActivity() {
                     addLog("已发送: $offset / ${fileBytes.size} 字节")
 
                     // 每次传输后短暂等待，避免打印机缓冲区溢出
-                    Thread.sleep(10)
+                    Thread.sleep(100)
                 }
                 
                 // 发送换页命令
-                val formFeedCommand = byteArrayOf(0x0C)  // FF 命令，换页
-                connection.bulkTransfer(outEndpoint, formFeedCommand, formFeedCommand.size, 1000)
+                // val formFeedCommand = byteArrayOf(0x0C)  // FF 命令，换页
+                // // connection.bulkTransfer(outEndpoint, formFeedCommand, formFeedCommand.size, 1000)
                 
-                // 等待打印完成
-                Thread.sleep(500)
                 
                 // 释放资源
                 connection.releaseInterface(usbInterface)
                 connection.close()
                 connection = null
                 usbInterface = null
+                // 等待打印完成
+                Thread.sleep(500)
                 
                 addLog("打印数据发送完成")
                 return createJsonResponse("打印数据已成功发送到打印机", logs)
@@ -429,6 +462,10 @@ class MainActivity : TauriActivity() {
                 }
                 return createJsonResponse("打印失败: ${e.message}", logs)
             } finally {
+              
+              addLog("打印数据发送完成111111111111")
+              // 清空日志
+              logs.clear()
                 // 最后确保资源被释放
                 try {
                     usbInterface?.let { intf ->

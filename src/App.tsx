@@ -1,5 +1,5 @@
 /** @ts-ignore */
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import "./App.css"
 import Vconsole from "vconsole"
@@ -7,8 +7,8 @@ import Vconsole from "vconsole"
 new Vconsole()
 // 定义打印机类型
 interface Printer {
-  name: string
-  is_default: boolean
+  device_name: string
+  product_name: string
 }
 
 // 定义照片信息类型
@@ -35,6 +35,7 @@ function App() {
   // 状态管理
   const [printers, setPrinters] = useState<Printer[]>([])
   const [selectedPrinter, setSelectedPrinter] = useState<string>("")
+  const selPrinter = useRef<string>("")
   const [printContent, setPrintContent] = useState<string>(
     "<h1>测试打印内容</h1><p>这是一个测试打印文档。</p>"
   )
@@ -57,9 +58,14 @@ function App() {
       setPrinters(result)
       console.log(result, result.length, "result-33-----------")
       if (result.length > 0) {
-        // 设置默认打印机
-        const defaultPrinter = result.find((p) => p.is_default) || result[0]
-        setSelectedPrinter(defaultPrinter.name)
+        // // 设置默认打印机
+        // const defaultPrinter = result.find((p) => p.is_default) || result[0]
+        setSelectedPrinter(result[0].device_name)
+        selPrinter.current = result[0].device_name
+      } else {
+        setPrinters([])
+        setSelectedPrinter('')
+        selPrinter.current = ''
       }
       setMessage(`找到 ${result.length} 台打印机`)
     } catch (error) {
@@ -70,11 +76,17 @@ function App() {
     }
   }
   const handlePrintWindow = async () => {
+    console.log(selPrinter.current, 'selectedPrinter----------')
+    if (!selPrinter.current) {
+      setMessage("请先选择打印机")
+      return
+    }
     try {
       console.log("点击打印", window)
       setPrintLogs([]) // 清空之前的日志
-      
-      const response = await invoke<string>("print_document")
+      const response = await invoke<string>("print_document", {
+        devicePath: selPrinter.current  // 使用实际的设备路径
+      })
       const result = JSON.parse(response)
       
       console.log("打印结果:", result)
@@ -89,12 +101,19 @@ function App() {
   }
   // 打印文档
   const handlePrint = async () => {
+    console.log(selPrinter.current, 'selectedPrinter----------')
+    if (!selPrinter.current) {
+      setMessage("请先选择打印机")
+      return
+    }
     try {
       setLoading(true)
       setMessage("正在打印...")
       setPrintLogs([]) // 清空之前的日志
-      
-      const response = await invoke<string>("print_document")
+
+      const response = await invoke<string>("print_document", {
+        devicePath: selPrinter.current  // 使用实际的设备路径
+      })
       const result = JSON.parse(response)
       
       console.log("打印结果:", result)
@@ -210,6 +229,14 @@ function App() {
     setMessage("");
   };
 
+  const handlePrintSel = () => {
+    let printerSelect: any = document.getElementById('printerSelect');
+    console.log(printerSelect, 'printerSelect==========')
+    if (printerSelect) {
+      setSelectedPrinter(printerSelect.value)
+      selPrinter.current = printerSelect.value
+    }
+  }
   // 组件挂载时获取打印机列表
   useEffect(() => {
     fetchPrinters()
@@ -227,19 +254,20 @@ function App() {
         </button>
         <button onClick={handlePrintWindow}>点击打印</button>
         <div className="form-group">
-          <label>选择打印机:</label>
+          <label htmlFor="printerSelect">选择打印机:
           <select
+            id="printerSelect"
             value={selectedPrinter}
-            onChange={(e) => setSelectedPrinter(e.target.value)}
-            disabled={printers.length === 0 || loading}
+            onChange={() => handlePrintSel()}
           >
             {printers.length === 0 && <option value="">无可用打印机</option>}
             {printers.map((printer: any) => (
-              <option key={printer.product_name} value={printer.product_id}>
+              <option key={printer.product_name} value={printer.device_name}>
                 {printer.product_name} 
               </option>
             ))}
           </select>
+          </label>
         </div>
       </div>
 
