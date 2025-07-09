@@ -343,7 +343,7 @@ class MainActivity : TauriActivity() {
       try {
           addLog("PRINT", "开始打印")
           var start = System.currentTimeMillis();
-          addLog("PRINT", "准备发送数据到打印机...")
+          addLog("PRINT", "准备发送数据到打印机....")
 
           // 初始化打印机
           val initCommand = byteArrayOf(0x1B, 0x40, 0x1B, 0x3F, 0x0C)  // ESC @ 命令，初始化打印机
