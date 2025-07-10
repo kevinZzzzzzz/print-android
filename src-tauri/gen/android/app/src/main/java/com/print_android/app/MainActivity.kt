@@ -37,13 +37,25 @@ import android.provider.Settings
 import java.nio.charset.StandardCharsets
 import android.print.PrintJobInfo
 
+/**
+ * MainActivity 类
+ * 主要功能：
+ * 1. USB打印机连接和打印控制
+ * 2. 相机拍照功能
+ * 3. 文件处理
+ */
 class MainActivity : TauriActivity() {
     private var currentPhotoPath: String? = null
     private var isPhotoInProgress: Boolean = false
     private val CAMERA_PERMISSION_REQUEST_CODE = 100
     private val USB_PERMISSION_REQUEST_CODE = 101
 
-    val logs = mutableListOf<String>()
+    /**
+     * 日志记录列表和添加日志的方法
+     * @param tag 日志标签
+     * @param message 日志消息内容
+     */
+    private val logs = mutableListOf<String>()
     private fun addLog(tag: String, message: String) {
         logs.add("[$tag] $message")
     }
@@ -76,7 +88,10 @@ class MainActivity : TauriActivity() {
         super.onCreate(savedInstanceState)
     }
 
-    // 获取连接的USB设备列表
+    /**
+     * 获取已连接的USB设备列表
+     * @return 返回JSON格式的设备信息列表，包含设备名称、厂商ID、产品ID等信息
+     */
     @JvmName("getConnectedUsbDevices")
     fun getConnectedUsbDevices(): String {
         // 打印输出日志到终端
@@ -126,7 +141,10 @@ class MainActivity : TauriActivity() {
         }
     }
 
-    // 获取照片的Base64编码（真实拍照功能）
+    /**
+     * 拍照并返回Base64编码的图片数据
+     * @return 返回JSON格式的拍照结果，包含状态信息或错误信息
+     */
     @JvmName("takePhotoBase64")
     fun takePhotoBase64(): String {
         try {
@@ -183,7 +201,10 @@ class MainActivity : TauriActivity() {
         }
     }
     
-    // 获取拍照结果
+    /**
+     * 获取拍照结果
+     * @return 返回JSON格式的拍照结果，包含图片的Base64编码或状态信息
+     */
     @JvmName("getPhotoResult")
     fun getPhotoResult(): String {
         return if (isPhotoInProgress) {
@@ -239,6 +260,11 @@ class MainActivity : TauriActivity() {
         private const val TAG = "MainActivity"
         private const val ACTION_USB_PERMISSION = "com.print_android.app.USB_PERMISSION"
     }
+    /**
+     * 执行打印操作
+     * @param device_path USB设备路径
+     * @return 返回JSON格式的打印结果和日志
+     */
     @JvmName("print")
     fun print(device_path: String): String {
         logs.clear()
@@ -408,12 +434,25 @@ class MainActivity : TauriActivity() {
         return result ?: createJsonResponse("打印完成", logs)
     }
 
+/**
+ * 查找指定方向的USB端点
+ * @param intf USB接口
+ * @param direction 端点方向（输入/输出）
+ * @return 返回找到的USB端点，如果未找到则返回null
+ */
 private fun findEndpoint(intf: UsbInterface, direction: Int): UsbEndpoint? {
     return (0 until intf.endpointCount)
         .map { intf.getEndpoint(it) }
         .find { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK && it.direction == direction }
 }
 
+/**
+ * 检查打印机状态
+ * @param connection USB连接
+ * @param outEndpoint 输出端点
+ * @param inEndpoint 输入端点
+ * @return 返回打印机状态字符串
+ */
 private fun checkPrinterStatus(
     connection: UsbDeviceConnection,
     outEndpoint: UsbEndpoint,
@@ -440,6 +479,10 @@ private fun checkPrinterStatus(
     }
 }
 
+/**
+ * 清理系统打印队列
+ * 取消所有未完成的打印任务
+ */
 private fun clearSystemPrintJobs() {
     addLog("CLEAR", "开始清理系统打印队列")
     val printManager = this.getSystemService(Context.PRINT_SERVICE) as PrintManager
@@ -458,7 +501,10 @@ private fun clearSystemPrintJobs() {
     }
 }
     
-    // 创建图片文件
+    /**
+     * 创建临时图片文件
+     * @return 返回创建的临时文件，如果创建失败则返回null
+     */
     private fun createImageFile(): File? {
         return try {
             val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -474,13 +520,22 @@ private fun clearSystemPrintJobs() {
         }
     }
     
-    // 处理拍照结果
+    /**
+     * 处理相机拍照结果
+     * 标记拍照过程完成
+     */
     private fun handleCameraResult() {
         Log.d("TakePhoto", "Camera result received, photo path: $currentPhotoPath")
         isPhotoInProgress = false // 标记拍照完成
     }
     
-    // 调整图片大小以减小文件size
+    /**
+     * 调整图片大小
+     * @param bitmap 原始图片
+     * @param maxWidth 最大宽度
+     * @param maxHeight 最大高度
+     * @return 返回调整大小后的图片
+     */
     private fun resizeBitmap(bitmap: Bitmap, maxWidth: Int, maxHeight: Int): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
@@ -499,7 +554,11 @@ private fun clearSystemPrintJobs() {
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
     
-    // 创建错误结果
+    /**
+     * 创建错误响应JSON
+     * @param errorMessage 错误信息
+     * @return 返回JSON格式的错误信息
+     */
     private fun createErrorResult(errorMessage: String): String {
         val errorResult = JSONObject().apply {
             put("path", "")
@@ -508,7 +567,12 @@ private fun clearSystemPrintJobs() {
         }
         return errorResult.toString()
     }
-    // 处理权限请求结果
+    /**
+     * 处理权限请求结果
+     * @param requestCode 请求码
+     * @param permissions 权限数组
+     * @param grantResults 授权结果数组
+     */
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -527,6 +591,12 @@ private fun clearSystemPrintJobs() {
         }
     }
 
+    /**
+     * 创建JSON响应
+     * @param message 响应消息
+     * @param logs 日志列表
+     * @return 返回JSON格式的响应数据
+     */
     private fun createJsonResponse(message: String, logs: List<String>): String {
         return JSONObject().apply {
             put("message", message)
@@ -535,7 +605,13 @@ private fun clearSystemPrintJobs() {
         }.toString()
     }
 
-    // 新增打印执行函数
+    /**
+     * 执行打印操作的核心方法
+     * @param connection USB连接
+     * @param outEndpoint 输出端点
+     * @param inEndpoint 输入端点
+     * @param fileBytes 要打印的文件数据
+     */
     private fun doPrint(
         connection: UsbDeviceConnection,
         outEndpoint: UsbEndpoint,
@@ -644,7 +720,12 @@ private fun clearSystemPrintJobs() {
         addLog("SUCCESS", "打印数据已成功发送到打印机")
     }
 
-    // 简化的状态检查
+    /**
+     * 简单的打印机状态检查
+     * @param connection USB连接
+     * @param outEndpoint 输出端点
+     * @param inEndpoint 输入端点
+     */
     private fun checkSimplePrinterStatus(
         connection: UsbDeviceConnection,
         outEndpoint: UsbEndpoint,
@@ -667,7 +748,13 @@ private fun clearSystemPrintJobs() {
         }
     }
 
-    // 详细的状态检查
+    /**
+     * 详细的打印机状态检查
+     * @param connection USB连接
+     * @param outEndpoint 输出端点
+     * @param inEndpoint 输入端点
+     * @return 返回打印机详细状态
+     */
     private fun checkDetailedPrinterStatus(
         connection: UsbDeviceConnection,
         outEndpoint: UsbEndpoint,
@@ -718,7 +805,10 @@ private fun clearSystemPrintJobs() {
         }
     }
 
-    // 检查存储权限
+    /**
+     * 检查存储权限
+     * @return 返回是否具有存储权限
+     */
     private fun checkStoragePermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
