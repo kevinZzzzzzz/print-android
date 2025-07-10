@@ -345,15 +345,38 @@ class MainActivity : TauriActivity() {
             addLog("CLEANUP", "开始清理资源")
             
             try {
-                // 发送重置命令
+                // 发送更多重置命令
                 if (connection != null && outEndpoint != null) {
                     try {
-                        val resetCmd = "@PJL RESET\r\n".toByteArray(StandardCharsets.US_ASCII)
-                        connection.bulkTransfer(outEndpoint, resetCmd, resetCmd.size, 1000)
+                        // 发送多个重置命令确保打印机状态重置
+                        val resetCommands = listOf(
+                            "\u001B\u0045",  // 初始化打印机
+                            "\u001B@",       // 初始化打印机
+                            "@PJL RESET\r\n",
+                            "@PJL EOJ\r\n",
+                            "@PJL ENTER LANGUAGE=PCL\r\n",
+                            "\u001BE",       // 重置打印机
+                            "\u0018",        // CAN - 取消当前任务
+                            "\u001Bx\u0001"  // 复位打印机
+                        )
+
+                        for (cmd in resetCommands) {
+                            val cmdBytes = cmd.toByteArray(StandardCharsets.US_ASCII)
+                            connection.bulkTransfer(outEndpoint, cmdBytes, cmdBytes.size, 1000)
+                            Thread.sleep(100)  // 每个命令之间稍作延迟
+                        }
                         addLog("CLEANUP", "发送重置命令成功")
                     } catch (e: Exception) {
                         addLog("ERROR", "发送重置命令失败: ${e.message}")
                     }
+                }
+
+                // 清理系统打印队列
+                try {
+                    clearSystemPrintJobs()
+                    addLog("CLEANUP", "清理打印队列成功")
+                } catch (e: Exception) {
+                    addLog("ERROR", "清理打印队列失败: ${e.message}")
                 }
 
                 // 释放接口
@@ -568,17 +591,52 @@ private fun clearSystemPrintJobs() {
 
         // 3. 结束打印作业
         val endCommands = listOf(
+            "\u000C",        // Form Feed - 强制输出当前页
             "@PJL EOJ\r\n",
-            "@PJL RESET\r\n"
+            "@PJL RESET\r\n",
+            "\u001B\u0045",  // 初始化打印机
+            "\u001B@"        // 初始化打印机
         )
 
         for (cmd in endCommands) {
             val cmdBytes = cmd.toByteArray(StandardCharsets.US_ASCII)
             connection.bulkTransfer(outEndpoint, cmdBytes, cmdBytes.size, 1000)
+            Thread.sleep(200)  // 增加延迟时间
+        }
+
+        // 4. 等待打印机完成并检查状态
+        addLog("WAIT", "等待打印机完成打印...")
+        var waitCount = 0
+        val maxWait = 30 // 最多等待30次，每次1秒
+        
+        while (waitCount < maxWait) {
+            Thread.sleep(1000)
+            val status = checkDetailedPrinterStatus(connection, outEndpoint, inEndpoint)
+            addLog("STATUS", "打印机状态检查 $waitCount: $status")
+            
+            if (status.contains("READY") || status.contains("IDLE")) {
+                addLog("COMPLETE", "打印机已完成打印")
+                break
+            }
+            waitCount++
+        }
+
+        // 5. 最终强制重置
+        val finalResetCommands = listOf(
+            "\u0018",        // CAN - 取消命令
+            "\u001B\u0045",  // 初始化
+            "@PJL RESET\r\n",
+            "@PJL ENTER LANGUAGE=PJL\r\n",
+            "@PJL COMMENT 清理完成\r\n"
+        )
+
+        for (cmd in finalResetCommands) {
+            val cmdBytes = cmd.toByteArray(StandardCharsets.US_ASCII)
+            connection.bulkTransfer(outEndpoint, cmdBytes, cmdBytes.size, 1000)
             Thread.sleep(100)
         }
 
-        // 4. 清理打印队列
+        // 6. 清理打印队列
         clearSystemPrintJobs()
 
         val end = System.currentTimeMillis()
@@ -606,6 +664,57 @@ private fun clearSystemPrintJobs() {
             }
         } catch (e: Exception) {
             addLog("STATUS_ERROR", "状态查询异常: ${e.message}")
+        }
+    }
+
+    // 详细的状态检查
+    private fun checkDetailedPrinterStatus(
+        connection: UsbDeviceConnection,
+        outEndpoint: UsbEndpoint,
+        inEndpoint: UsbEndpoint
+    ): String {
+        try {
+            // 发送状态查询命令
+            val statusQueries = listOf(
+                "@PJL INFO STATUS\r\n",
+                "@PJL INQUIRE READY\r\n",
+                "\u001B*s1M"  // ESC 状态查询
+            )
+            
+            for (query in statusQueries) {
+                val queryBytes = query.toByteArray(StandardCharsets.US_ASCII)
+                val sendResult = connection.bulkTransfer(outEndpoint, queryBytes, queryBytes.size, 1000)
+                
+                if (sendResult >= 0) {
+                    Thread.sleep(200)
+                    val response = ByteArray(64)
+                    val bytesRead = connection.bulkTransfer(inEndpoint, response, response.size, 2000)
+                    
+                    if (bytesRead > 0) {
+                        val responseStr = String(response, 0, bytesRead, StandardCharsets.US_ASCII)
+                        addLog("STATUS_RESPONSE", "状态响应: $responseStr")
+                        
+                        // 检查是否包含就绪状态
+                        if (responseStr.contains("READY", ignoreCase = true) || 
+                            responseStr.contains("IDLE", ignoreCase = true) ||
+                            responseStr.contains("ONLINE", ignoreCase = true)) {
+                            return "READY"
+                        }
+                        
+                        if (responseStr.contains("BUSY", ignoreCase = true) ||
+                            responseStr.contains("PRINTING", ignoreCase = true)) {
+                            return "BUSY"
+                        }
+                        
+                        return responseStr.trim()
+                    }
+                }
+            }
+            
+            return "NO_RESPONSE"
+        } catch (e: Exception) {
+            addLog("STATUS_ERROR", "状态查询异常: ${e.message}")
+            return "ERROR"
         }
     }
 
