@@ -239,204 +239,201 @@ class MainActivity : TauriActivity() {
         private const val TAG = "MainActivity"
         private const val ACTION_USB_PERMISSION = "com.print_android.app.USB_PERMISSION"
     }
-
     @JvmName("print")
     fun print(device_path: String): String {
-      logs.clear()
-        // 检查存储权限
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    addCategory("android.intent.category.DEFAULT")
-                    data = Uri.parse("package:${applicationContext.packageName}")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                startActivity(intent)
-                return createJsonResponse("需要文件访问权限，请在设置中授权后重试", logs)
+        logs.clear()
+        var result: String? = null
+        var connection: UsbDeviceConnection? = null
+        var usbInterface: UsbInterface? = null
+        var outEndpoint: UsbEndpoint? = null
+        var inEndpoint: UsbEndpoint? = null
+
+        try {
+            // 使用标志变量控制流程,避免提前返回
+            var shouldContinue = true
+            
+            // 检查权限
+            if (shouldContinue && !checkStoragePermissions()) {
+                result = createJsonResponse("需要存储权限，请授权后重试", logs)
+                shouldContinue = false
             }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
-                != PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
-                != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(
-                        Manifest.permission.READ_EXTERNAL_STORAGE,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE
-                    ),
-                    1001
+
+            // 读取文件
+            var fileBytes = ByteArray(0)
+            if (shouldContinue) {
+                try {
+                    val file = File(Environment.getExternalStorageDirectory(), "test.pdf")
+                    if (!file.exists()) {
+                        result = createJsonResponse("文件不存在：${file.absolutePath}", logs)
+                        shouldContinue = false
+                    } else {
+                        fileBytes = FileInputStream(file).use { it.readBytes() }
+                        addLog("FILE", "成功读取文件，大小: ${fileBytes.size} 字节")
+                    }
+                } catch (e: Exception) {
+                    result = createJsonResponse("读取文件失败: ${e.message}", logs)
+                    shouldContinue = false
+                }
+            }
+
+            // 初始化USB设备
+            if (shouldContinue) {
+                devicePath = device_path
+                targetDevice = deviceList.values.find { it.deviceName == devicePath }
+                if (targetDevice == null) {
+                    result = createJsonResponse("未找到指定的打印机设备：$devicePath", logs)
+                    shouldContinue = false
+                } else {
+                    addLog("DEVICE", "找到打印机设备: ${targetDevice?.deviceName}")
+                }
+            }
+
+            // 检查USB权限
+            if (shouldContinue && !usbManager.hasPermission(targetDevice)) {
+                val permissionIntent = PendingIntent.getBroadcast(
+                    this, 
+                    0, 
+                    Intent(ACTION_USB_PERMISSION),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
-                return createJsonResponse("需要存储权限，请授权后重试", logs)
+                usbManager.requestPermission(targetDevice, permissionIntent)
+                result = createJsonResponse("需要USB设备权限，请授权后重试", logs)
+                shouldContinue = false
+            }
+
+            // 设置USB连接
+            if (shouldContinue) {
+                usbInterface = targetDevice?.getInterface(0)
+                outEndpoint = findEndpoint(usbInterface!!, UsbConstants.USB_DIR_OUT)
+                inEndpoint = findEndpoint(usbInterface!!, UsbConstants.USB_DIR_IN)
+
+                if (outEndpoint == null || inEndpoint == null) {
+                    result = createJsonResponse("未找到合适的USB端点", logs)
+                    shouldContinue = false
+                }
+            }
+
+            // 打开连接
+            if (shouldContinue) {
+                connection = usbManager.openDevice(targetDevice)
+                if (connection == null) {
+                    result = createJsonResponse("无法连接到打印机设备", logs)
+                    shouldContinue = false
+                } else if (!connection.claimInterface(usbInterface, true)) {
+                    result = createJsonResponse("无法获取USB接口控制权", logs)
+                    shouldContinue = false
+                }
+            }
+
+            // 执行打印
+            if (shouldContinue) {
+              doPrint(connection!!, outEndpoint!!, inEndpoint!!, fileBytes)
+              addLog("ENDDDDD","1231231231")
+                // try {
+                //     doPrint(connection!!, outEndpoint!!, inEndpoint!!, fileBytes)
+                //     addLog("ENDDDDD","1231231231")
+                // } catch (e: Exception) {
+                //     addLog("ERROR", "打印过程出错: ${e.message}")
+                //     result = createJsonResponse("打印失败: ${e.message}", logs)
+                // }
+            }
+
+        } catch (e: Exception) {
+            addLog("ERROR", "打印过程出错: ${e.message}")
+            result = createJsonResponse("打印失败: ${e.message}", logs)
+        } finally {
+            addLog("CLEANUP", "开始清理资源")
+            
+            try {
+                // 发送重置命令
+                if (connection != null && outEndpoint != null) {
+                    try {
+                        val resetCmd = "@PJL RESET\r\n".toByteArray(StandardCharsets.US_ASCII)
+                        connection.bulkTransfer(outEndpoint, resetCmd, resetCmd.size, 1000)
+                        addLog("CLEANUP", "发送重置命令成功")
+                    } catch (e: Exception) {
+                        addLog("ERROR", "发送重置命令失败: ${e.message}")
+                    }
+                }
+
+                // 释放接口
+                if (connection != null && usbInterface != null) {
+                    try {
+                        connection.releaseInterface(usbInterface)
+                        addLog("CLEANUP", "释放接口成功")
+                    } catch (e: Exception) {
+                        addLog("ERROR", "释放接口失败: ${e.message}")
+                    }
+                }
+
+                // 关闭连接
+                if (connection != null) {
+                    try {
+                        connection.close()
+                        addLog("CLEANUP", "关闭连接成功")
+                    } catch (e: Exception) {
+                        addLog("ERROR", "关闭连接失败: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                addLog("ERROR", "清理资源时发生错误: ${e.message}")
+            } finally {
+                addLog("END", "资源清理完成")
             }
         }
-      // 读取PDF文件
-      val file = File(Environment.getExternalStorageDirectory(), "test.pdf")
-      if (!file.exists()) {
-          return createJsonResponse("文件不存在：${file.absolutePath}", logs)
-      }
-      val inputStream = FileInputStream(file)
-      val fileBytes = inputStream.readBytes()
-      inputStream.close()
 
-      addLog("FILE", "成功读取文件，大小: ${fileBytes.size} 字节")
-
-      // 获取目标打印机设备
-      devicePath = device_path
-      
-      // 查找目标打印机
-      targetDevice = deviceList.values.find { it.deviceName == devicePath }
-      
-      val currentDevice = targetDevice
-      if (currentDevice == null) {
-          return createJsonResponse("未找到指定的打印机设备：$devicePath", logs)
-      }
-
-      addLog("DEVICE", "找到打印机设备: ${currentDevice.deviceName}")
-      addLog("DEVICE", "制造商: ${currentDevice.manufacturerName}, 产品: ${currentDevice.productName}")
-      
-      // 检查是否有USB设备权限
-      if (!usbManager.hasPermission(currentDevice)) {
-          val permissionIntent = PendingIntent.getBroadcast(
-              this, 
-              0, 
-              Intent(ACTION_USB_PERMISSION),
-              PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-          )
-          usbManager.requestPermission(currentDevice, permissionIntent)
-          return createJsonResponse("需要USB设备权限，请授权后重试", logs)
-      }
-
-      addLog("PRINT", "获取打印服务, ${printManager}, ${printManager.printJobs.size}")
-      
-      //  连接USB设备并查找端点 获取USB接口
-      val currentInterface = currentDevice.getInterface(0)
-      usbInterface = currentInterface
-      
-      addLog("USB", "USB接口信息: interfaceClass=${currentInterface.interfaceClass}, " + 
-                    "interfaceSubclass=${currentInterface.interfaceSubclass}, " +  
-                    "interfaceProtocol=${currentInterface.interfaceProtocol}")
-      
-      // 查找输出端点
-      outEndpoint = (0 until currentInterface.endpointCount)
-          .map { currentInterface.getEndpoint(it) }
-          .find { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK && 
-                  it.direction == UsbConstants.USB_DIR_OUT }
-      
-      val currentEndpoint = outEndpoint
-      if (currentEndpoint == null) {
-          return createJsonResponse("未找到合适的输出端点", logs)
-      }
-      
-      addLog("USB", "输出端点: $currentEndpoint ${UsbConstants.USB_DIR_OUT}")
-      
-      // 打开USB连接
-      connection = usbManager.openDevice(currentDevice)
-      val currentConnection = connection
-      
-      if (currentConnection == null) {
-          return createJsonResponse("无法连接到打印机设备", logs)
-      }
-      
-      currentConnection.claimInterface(currentInterface, true)
-
-      try {
-          addLog("PRINT", "开始打印")
-          var start = System.currentTimeMillis();
-          addLog("PRINT", "准备发送数据到打印机....")
-
-          // 初始化打印机
-          val initCommand = byteArrayOf(0x1B, 0x40, 0x1B, 0x3F, 0x0C)  // ESC @ 命令，初始化打印机
-          val initResult = currentConnection.bulkTransfer(currentEndpoint, initCommand, initCommand.size, 1000)
-          if (initResult < 0) {
-              currentConnection.releaseInterface(currentInterface)
-              currentConnection.close()
-              return createJsonResponse("打印机初始化失败", logs)
-          }
-          Thread.sleep(1000) // 等待初始化打印机完成
-          // 关键步骤1：发送惠普复位指令
-          val resetCmd = "@PJL DEFAULT RESET=ALL\n".toByteArray(StandardCharsets.US_ASCII)
-          val resetResult = currentConnection.bulkTransfer(currentEndpoint, resetCmd, resetCmd.size, 5000)
-          if (resetResult < 0) {
-              return createJsonResponse("发送复位指令失败", logs)
-          }
-          // 惠普专用作业结束指令
-          val jobEndCmd22 = "@PJL EOJ\n".toByteArray(StandardCharsets.US_ASCII)
-          currentConnection.bulkTransfer(currentEndpoint, jobEndCmd22, jobEndCmd22.size, 1000)
-          Thread.sleep(1000) // 等待复位完成
-
-
-          // 关键步骤2：分块传输数据
-          val CHUNK_SIZE = currentEndpoint.maxPacketSize
-          var offset = 0
-          while (offset < fileBytes.size) {
-              val endIdx = minOf(offset + CHUNK_SIZE, fileBytes.size)
-              val chunk = fileBytes.copyOfRange(offset, endIdx)
-              val result = currentConnection.bulkTransfer(currentEndpoint, chunk, chunk.size, 10000)
-              addLog("PRINTING", "${result} ")
-              
-              if (result < 0) {
-                  currentConnection.releaseInterface(currentInterface)
-                  currentConnection.close()
-                  return createJsonResponse("数据传输失败，已发送 $offset 字节", logs)
-              }
-              offset += chunk.size
-              addLog("PRINT", "已发送: $offset / ${fileBytes.size} 字节")
-
-              // 每次传输后短暂等待，避免打印机缓冲区溢出
-              // Thread.sleep(100)
-          }
-
-          // 关键步骤5：清空系统打印队列
-          clearSystemPrintJobs()
-          
-          // 关键步骤3：发送结束指令
-          
-          val resetCmd11 = "@PJL DEFAULT RESET=ALL\n".toByteArray(StandardCharsets.US_ASCII)
-          currentConnection.bulkTransfer(currentEndpoint, resetCmd11, resetCmd11.size, 5000)
-          // 惠普专用作业结束指令
-          val jobEndCmd = "@PJL EOJ\n".toByteArray(StandardCharsets.US_ASCII)
-          currentConnection.bulkTransfer(currentEndpoint, jobEndCmd, jobEndCmd.size, 1000)
-          addLog("PRINTEND", "发送作业结束指令")
-
-          
-          val formFeedCommand = byteArrayOf(0x1B, 0x40, 0x1B, 0x3F, 0x0C)  // 重置配置
-          val result1 = currentConnection.bulkTransfer(currentEndpoint, formFeedCommand, formFeedCommand.size, 1000)
-          addLog("PRINTEND", "重置配置 ${result1}")
-          // 关键步骤4：等待打印机处理（3秒）
-          // Thread.sleep(3000)
-          // Thread.sleep(1000)
-          
-          //查询打印机状态指令
-          val queryCmd = "@PJL INFO STATUS\r\n".toByteArray(StandardCharsets.US_ASCII)
-          val result3 = currentConnection.bulkTransfer(currentEndpoint, queryCmd, queryCmd.size, 1000)
-          addLog("PRINTEND", "查询打印机状态指令 ${result3}")
-
-          addLog("PRINTEND", "打印数据发送完成")
-          var end = System.currentTimeMillis();
-          addLog("TIME", "打印耗时: ${end - start} ms");
-          return createJsonResponse("打印数据已成功发送到打印机", logs)
-      } catch (e: Exception) {
-          addLog("ERROR", "打印过程出错: ${e.message}")
-          return createJsonResponse("打印失败: ${e.message}", logs)
-      } finally {
-        addLog("END", "打印结束")
-      }
+        return result ?: createJsonResponse("打印完成", logs)
     }
-     // 5. 清空系统打印队列
-     private fun clearSystemPrintJobs() {
-        addLog("CLEAR", "开始清理系统打印队列")
-      val printManager = this.getSystemService(Context.PRINT_SERVICE) as PrintManager
-        addLog("CLEAR", "获取打印服务, ${printManager}, ${printManager.printJobs.size}")
-      printManager.printJobs.forEach { job ->
-        job.cancel() // 强制取消任务[1,4](@ref)
-          // if (job.info.state == PrintJobInfo.STATE_STARTED || 
-          //     job.info.state == PrintJobInfo.STATE_QUEUED
-          // ) {
-          //     job.cancel() // 强制取消任务[1,4](@ref)
-          // }
-      }
+
+private fun findEndpoint(intf: UsbInterface, direction: Int): UsbEndpoint? {
+    return (0 until intf.endpointCount)
+        .map { intf.getEndpoint(it) }
+        .find { it.type == UsbConstants.USB_ENDPOINT_XFER_BULK && it.direction == direction }
+}
+
+private fun checkPrinterStatus(
+    connection: UsbDeviceConnection,
+    outEndpoint: UsbEndpoint,
+    inEndpoint: UsbEndpoint
+): String {
+    try {
+        // 使用简单的ESC命令查询状态
+        val queryCmd = "\u001B*s1M".toByteArray(StandardCharsets.US_ASCII)
+        connection.bulkTransfer(outEndpoint, queryCmd, queryCmd.size, 1000)
+        
+        Thread.sleep(200) // 等待打印机响应
+        
+        val response = ByteArray(8)
+        val bytesRead = connection.bulkTransfer(inEndpoint, response, response.size, 1000)
+        
+        return if (bytesRead > 0) {
+            "PRINTER_RESPONDING"
+        } else {
+            "CONTINUE_PRINTING"
+        }
+    } catch (e: Exception) {
+        addLog("STATUS_ERROR", "状态查询异常: ${e.message}")
+        return "CONTINUE_PRINTING"
     }
+}
+
+private fun clearSystemPrintJobs() {
+    addLog("CLEAR", "开始清理系统打印队列")
+    val printManager = this.getSystemService(Context.PRINT_SERVICE) as PrintManager
+    addLog("CLEAR", "获取打印服务, ${printManager}, ${printManager.printJobs.size}")
+    
+    printManager.printJobs.forEach { job ->
+        when (job.info.state) {
+            PrintJobInfo.STATE_CREATED,
+            PrintJobInfo.STATE_QUEUED,
+            PrintJobInfo.STATE_STARTED,
+            PrintJobInfo.STATE_BLOCKED -> {
+                job.cancel()
+                addLog("CLEAR", "取消打印作业: ${job.info.id}")
+            }
+        }
+    }
+}
     
     // 创建图片文件
     private fun createImageFile(): File? {
@@ -513,5 +510,112 @@ class MainActivity : TauriActivity() {
             put("logs", JSONArray(logs))
             put("timestamp", System.currentTimeMillis())
         }.toString()
+    }
+
+    // 新增打印执行函数
+    private fun doPrint(
+        connection: UsbDeviceConnection,
+        outEndpoint: UsbEndpoint,
+        inEndpoint: UsbEndpoint,
+        fileBytes: ByteArray
+    ) {
+        val start = System.currentTimeMillis()
+        addLog("PRINT", "开始打印")
+
+        // 1. 初始化打印机
+        val initCommands = listOf(
+            byteArrayOf(0x1B, 0x40),  // ESC @
+            "@PJL RESET\r\n",
+            "@PJL JOB NAME=\"PrintJob\"\r\n",
+            "@PJL ENTER LANGUAGE=PCL\r\n"
+        )
+
+        for (cmd in initCommands) {
+            val cmdBytes = when (cmd) {
+                is ByteArray -> cmd
+                is String -> cmd.toByteArray(StandardCharsets.US_ASCII)
+                else -> continue
+            }
+            if (connection.bulkTransfer(outEndpoint, cmdBytes, cmdBytes.size, 1000) < 0) {
+                addLog("ERROR", "打印机初始化失败")
+                return
+            }
+            Thread.sleep(100)
+        }
+
+        // 2. 分块传输数据
+        val CHUNK_SIZE = outEndpoint.maxPacketSize
+        var offset = 0
+
+        while (offset < fileBytes.size) {
+            val endIdx = minOf(offset + CHUNK_SIZE, fileBytes.size)
+            val chunk = fileBytes.copyOfRange(offset, endIdx)
+            
+            val result = connection.bulkTransfer(outEndpoint, chunk, chunk.size, 5000)
+            if (result < 0) {
+                addLog("ERROR", "数据传输失败，已发送 $offset 字节")
+                return
+            }
+            
+            offset += chunk.size
+            addLog("PRINT", "已发送: $offset / ${fileBytes.size} 字节")
+
+            // 定期检查打印机状态
+            if (offset % (CHUNK_SIZE * 100) == 0) {
+                checkSimplePrinterStatus(connection, outEndpoint, inEndpoint)
+            }
+        }
+
+        // 3. 结束打印作业
+        val endCommands = listOf(
+            "@PJL EOJ\r\n",
+            "@PJL RESET\r\n"
+        )
+
+        for (cmd in endCommands) {
+            val cmdBytes = cmd.toByteArray(StandardCharsets.US_ASCII)
+            connection.bulkTransfer(outEndpoint, cmdBytes, cmdBytes.size, 1000)
+            Thread.sleep(100)
+        }
+
+        // 4. 清理打印队列
+        clearSystemPrintJobs()
+
+        val end = System.currentTimeMillis()
+        addLog("TIME", "打印耗时: ${end - start} ms")
+        addLog("SUCCESS", "打印数据已成功发送到打印机")
+    }
+
+    // 简化的状态检查
+    private fun checkSimplePrinterStatus(
+        connection: UsbDeviceConnection,
+        outEndpoint: UsbEndpoint,
+        inEndpoint: UsbEndpoint
+    ) {
+        try {
+            val queryCmd = "\u001B*s1M".toByteArray(StandardCharsets.US_ASCII)
+            val sendResult = connection.bulkTransfer(outEndpoint, queryCmd, queryCmd.size, 1000)
+            
+            if (sendResult >= 0) {
+                Thread.sleep(100)
+                val response = ByteArray(8)
+                val bytesRead = connection.bulkTransfer(inEndpoint, response, response.size, 1000)
+                if (bytesRead > 0) {
+                    addLog("STATUS", "状态查询成功")
+                }
+            }
+        } catch (e: Exception) {
+            addLog("STATUS_ERROR", "状态查询异常: ${e.message}")
+        }
+    }
+
+    // 检查存储权限
+    private fun checkStoragePermissions(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
     }
 } 
