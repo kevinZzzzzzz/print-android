@@ -357,43 +357,54 @@ class MainActivity : TauriActivity() {
             addLog("CLEANUP", "开始清理资源")
             
             try {
-                // 发送更多重置命令
+                // 1. 强制停止所有打印操作
                 if (connection != null && outEndpoint != null) {
                     try {
-                        // 发送多个重置命令确保打印机状态重置
-                        val resetCommands = listOf(
-                            "\u001B\u0045",  // 初始化打印机
-                            "\u001B@",       // 初始化打印机
+                        // 发送多个取消和重置命令
+                        val cancelCommands = listOf(
+                            "\u0018",        // CAN - 取消当前任务
+                            "\u001B\u0001",  // ESC SOH - 软复位
+                            "\u001B@",       // ESC @ - 初始化打印机
                             "@PJL RESET\r\n",
+                            "@PJL CANCEL\r\n",
+                            "@PJL ABORT\r\n",
                             "@PJL EOJ\r\n",
                             "@PJL ENTER LANGUAGE=PCL\r\n",
-                            "\u001BE",       // 重置打印机
-                            "\u0018",        // CAN - 取消当前任务
+                            "\u001BE",       // ESC E - 重置打印机
                             "\u001Bx\u0001"  // 复位打印机
                         )
 
-                        for (cmd in resetCommands) {
+                        for (cmd in cancelCommands) {
                             val cmdBytes = cmd.toByteArray(StandardCharsets.US_ASCII)
                             connection.bulkTransfer(outEndpoint, cmdBytes, cmdBytes.size, 1000)
-                            Thread.sleep(100)  // 每个命令之间稍作延迟
+                            Thread.sleep(200)  // 增加等待时间确保命令被执行
                         }
-                        addLog("CLEANUP", "发送重置命令成功")
+                        addLog("CLEANUP", "发送取消和重置命令成功")
                     } catch (e: Exception) {
-                        addLog("ERROR", "发送重置命令失败: ${e.message}")
+                        addLog("ERROR", "发送取消命令失败: ${e.message}")
                     }
                 }
 
-                // 清理系统打印队列
+                // 2. 清理系统打印队列
                 try {
-                    clearSystemPrintJobs()
+                    // 多次尝试清理打印队列
+                    repeat(3) {
+                        clearSystemPrintJobs()
+                        Thread.sleep(500)  // 等待打印队列更新
+                    }
                     addLog("CLEANUP", "清理打印队列成功")
                 } catch (e: Exception) {
                     addLog("ERROR", "清理打印队列失败: ${e.message}")
                 }
 
-                // 释放接口
+                // 3. 释放USB接口
                 if (connection != null && usbInterface != null) {
                     try {
+                        // 在释放接口之前再次发送重置命令
+                        val finalResetCmd = "\u001B@".toByteArray(StandardCharsets.US_ASCII)
+                        connection.bulkTransfer(outEndpoint, finalResetCmd, finalResetCmd.size, 1000)
+                        Thread.sleep(200)
+                        
                         connection.releaseInterface(usbInterface)
                         addLog("CLEANUP", "释放接口成功")
                     } catch (e: Exception) {
@@ -401,7 +412,7 @@ class MainActivity : TauriActivity() {
                     }
                 }
 
-                // 关闭连接
+                // 4. 关闭USB连接
                 if (connection != null) {
                     try {
                         connection.close()
@@ -410,11 +421,29 @@ class MainActivity : TauriActivity() {
                         addLog("ERROR", "关闭连接失败: ${e.message}")
                     }
                 }
+
+                // 5. 等待一段时间确保所有操作都已完成
+                Thread.sleep(1000)
+                
             } catch (e: Exception) {
                 addLog("ERROR", "清理资源时发生错误: ${e.message}")
             } finally {
-                addLog("END", "资源清理完成")
+                // 确保所有资源都被释放
+                connection = null
+                usbInterface = null
+                outEndpoint = null
+                inEndpoint = null
+                devicePath = null
+                targetDevice = null
+                addLog("END", "所有资源清理完成")
             }
+        }
+
+        // 在返回结果之前再次确保打印队列为空
+        try {
+            clearSystemPrintJobs()
+        } catch (e: Exception) {
+            addLog("WARN", "最终清理打印队列时出错: ${e.message}")
         }
 
         return result ?: createJsonResponse("打印完成", logs)
