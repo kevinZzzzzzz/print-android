@@ -104,12 +104,6 @@ class MainActivity : TauriActivity() {
             addLog("USB", "UsbDevices devicesArray: $devicesArray")
             
             for (device in deviceList.values) {
-                // addLog("USB", """
-                //     Device Name: ${device.deviceName}
-                //     Vendor ID: ${device.vendorId}   // 厂商ID（如佳博打印机为 1137）
-                //     Product ID: ${device.productId}  // 产品ID
-                //     Interface Count: ${device.interfaceCount}
-                // """)
                 
                 // 判断manufacturer_name 是 HP 开头的
                 if (device.manufacturerName?.startsWith("HP") == true) {
@@ -354,14 +348,6 @@ class MainActivity : TauriActivity() {
             // 执行打印
             if (shouldContinue) {
               doPrint(connection!!, outEndpoint!!, inEndpoint!!, fileBytes)
-              addLog("ENDDDDD","1231231231")
-                // try {
-                //     doPrint(connection!!, outEndpoint!!, inEndpoint!!, fileBytes)
-                //     addLog("ENDDDDD","1231231231")
-                // } catch (e: Exception) {
-                //     addLog("ERROR", "打印过程出错: ${e.message}")
-                //     result = createJsonResponse("打印失败: ${e.message}", logs)
-                // }
             }
 
         } catch (e: Exception) {
@@ -650,7 +636,7 @@ private fun clearSystemPrintJobs() {
             val endIdx = minOf(offset + CHUNK_SIZE, fileBytes.size)
             val chunk = fileBytes.copyOfRange(offset, endIdx)
             
-            val result = connection.bulkTransfer(outEndpoint, chunk, chunk.size, 5000)
+            val result = connection.bulkTransfer(outEndpoint, chunk, chunk.size, 1000)
             if (result < 0) {
                 addLog("ERROR", "数据传输失败，已发送 $offset 字节")
                 return
