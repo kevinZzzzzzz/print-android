@@ -46,8 +46,34 @@ function App(props: any) {
     }
   }
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    console.log(setPrint, 'setPrint000000000')
+    if (setPrint === "") {
+      Toast.show({
+        icon: "error",
+        content: "请选择打印机",
+      })
+      return
+    }
     printUrl.current = "http://192.168.120.178:8080/test.pdf"
+    try {
+      const result: any = await invoke<Printer[]>("download_pdf", {
+        url: printUrl.current
+      })
+      console.log(result, 'result000000000')
+      setTimeout(async () => {
+        const resultObj = JSON.parse(result)
+        const response = await invoke<string>("print_document", {
+          devicePath: setPrint,  // 使用实际的设备路径
+          uri: `${resultObj.logs[0]}.pdf`,
+        })
+        console.log(JSON.parse(response), 'response000000000')
+      }, 2000);
+      
+    } catch (error) {
+      console.log(error, 'error000000')
+    }
+    
   }
   useEffect(() => {
     fetchPrinters()

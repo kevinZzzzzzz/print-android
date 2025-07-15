@@ -293,12 +293,12 @@ fn parse_photo_json(json_str: &str) -> Result<PhotoInfo, String> {
 
 // 帮我写一个调用打印的方法
 #[tauri::command]
-async fn print_document(device_path: String) -> Result<String, String> {
+async fn print_document(device_path: String, _uri: String) -> Result<String, String> {
     println!("调用打印方法，设备路径: {}", device_path);
 
     #[cfg(target_os = "android")]
     {
-        call_android_print_method(device_path).await
+        call_android_print_method(device_path, _uri).await
     }
 
     #[cfg(not(target_os = "android"))]
@@ -308,8 +308,8 @@ async fn print_document(device_path: String) -> Result<String, String> {
 }
 
 #[cfg(target_os = "android")]
-async fn call_android_print_method(device_path: String) -> Result<String, String> {
-    use jni::objects::{JObject, JString};
+async fn call_android_print_method(device_path: String, uri: String) -> Result<String, String> {
+    use jni::objects::JObject;
     
     // 获取当前的JNI环境和Activity
     let ctx = ndk_context::android_context();
@@ -325,13 +325,17 @@ async fn call_android_print_method(device_path: String) -> Result<String, String
     // 将 Rust String 转换为 Java String
     let j_device_path = env.new_string(&device_path)
         .map_err(|e| format!("Failed to create Java string: {}", e))?;
+
+    let j_uri = env.new_string(&uri)
+        .map_err(|e| format!("Failed to create Java URI string: {}", e))?;
     
     // 调用Android的print方法并获取返回值
     let result = env.call_method(
         &activity,
         "print",
-        "(Ljava/lang/String;)Ljava/lang/String;",
-        &[(&j_device_path).into()]
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        &[(&j_device_path).into(),
+        (&j_uri).into()]
     ).map_err(|e| format!("Failed to call print method: {}", e))?;
 
     // 获取返回的字符串
@@ -340,6 +344,61 @@ async fn call_android_print_method(device_path: String) -> Result<String, String
     
     let response = if jstring_result.is_null() {
         "打印完成".to_string()
+    } else {
+        env.get_string(&jstring_result.into())
+            .map_err(|e| format!("Failed to get response string: {}", e))?
+            .to_string_lossy()
+            .to_string()
+    };
+
+    Ok(response)
+}
+
+#[tauri::command]
+async fn download_pdf(url: String) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        call_android_download_method(url).await
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("桌面端暂不支持下载功能".to_string())
+    }
+}
+
+#[cfg(target_os = "android")]
+async fn call_android_download_method(url: String) -> Result<String, String> {
+    use jni::objects::JObject;
+    
+    // 获取当前的JNI环境和Activity
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("Failed to get JavaVM: {}", e))?;
+    
+    let mut env = vm.attach_current_thread()
+        .map_err(|e| format!("Failed to attach thread: {}", e))?;
+    
+    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    
+    // 将 Rust String 转换为 Java String
+    let j_url = env.new_string(&url)
+        .map_err(|e| format!("Failed to create Java string: {}", e))?;
+    
+    // 调用Android的downloadPdf方法并获取返回值
+    let result = env.call_method(
+        &activity,
+        "downloadPdf",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        &[(&j_url).into()]
+    ).map_err(|e| format!("Failed to call downloadPdf method: {}", e))?;
+
+    // 获取返回的字符串
+    let jstring_result = result.l()
+        .map_err(|e| format!("Failed to get result object: {}", e))?;
+    
+    let response = if jstring_result.is_null() {
+        "开始下载".to_string()
     } else {
         env.get_string(&jstring_result.into())
             .map_err(|e| format!("Failed to get response string: {}", e))?
@@ -360,7 +419,8 @@ pub fn run() {
             get_usb_devices,
             take_photo,
             get_photo_result,
-            print_document
+            print_document,
+            download_pdf // 添加下载方法
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

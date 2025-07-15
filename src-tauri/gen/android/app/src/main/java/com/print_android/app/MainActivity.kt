@@ -2,6 +2,11 @@ package com.print_android.app
 
 import android.app.PendingIntent
 import android.os.Bundle
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.database.Cursor
+import androidx.appcompat.app.AppCompatActivity
 import android.content.Context
 import android.print.PrintManager
 import android.hardware.usb.UsbManager
@@ -20,6 +25,7 @@ import android.graphics.Bitmap
 import android.util.Base64
 import android.graphics.BitmapFactory
 import java.io.*
+import java.io.File
 import android.net.Uri
 import android.content.ContentResolver
 import androidx.core.content.FileProvider
@@ -62,6 +68,9 @@ class MainActivity : TauriActivity() {
     private var isPhotoInProgress: Boolean = false
     private val CAMERA_PERMISSION_REQUEST_CODE = 100
     private val USB_PERMISSION_REQUEST_CODE = 101
+
+    private var downloadId: Long = -1
+    private val downloadManager by lazy { getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager }
 
     /**
      * 日志记录列表和添加日志的方法
@@ -273,7 +282,7 @@ class MainActivity : TauriActivity() {
      * @return 返回JSON格式的打印结果和日志
      */
     @JvmName("print")
-    fun print(device_path: String): String {
+    fun print(device_path: String, uri: String): String {
         logs.clear()
         var result: String? = null
         var connection: UsbDeviceConnection? = null
@@ -290,7 +299,7 @@ class MainActivity : TauriActivity() {
             }
 
             // 读取PDF文件
-            val file = File(Environment.getExternalStorageDirectory(), "test.pdf")
+            val file = File(Environment.getExternalStorageDirectory(), uri)
             if (!file.exists()) {
                 return createJsonResponse("文件不存在：${file.absolutePath}", logs)
             }
@@ -982,4 +991,50 @@ private fun clearSystemPrintJobs() {
             return errorResult.toString()
         }
     }
-} 
+
+    
+    /**
+     * 下载 PDF 文件
+     * @param url PDF 文件的下载链接
+     * @return 下载任务的 ID
+     */
+    @JvmName("downloadPdf")
+    fun downloadPdf(url: String): String {
+        try {
+            val timeStamp = System.currentTimeMillis()
+            val fileName = "PDF_${timeStamp}.pdf"
+             val request = DownloadManager.Request(Uri.parse(url)) 
+                 .setTitle("${fileName} 下载") 
+                 .setDescription("正在下载 PDF 文件") 
+                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED) 
+                 .setDestinationInExternalPublicDir( 
+                     Environment.DIRECTORY_DOWNLOADS, 
+                     fileName 
+                 ) 
+                 .setAllowedOverMetered(true) 
+                 .setAllowedOverRoaming(true) 
+ 
+             downloadManager.enqueue(request) 
+             return createJsonResponse("开始下载 PDF 文件", listOf(fileName))
+        } catch (e: Exception) {
+            addLog("DOWNLOAD", "下载 PDF 文件失败: ${e.message}")
+            return createJsonResponse("下载 PDF 文件失败: ${e.message}", emptyList())
+        }
+    }
+
+    // private fun handleDownloadComplete() {
+    //     val query = DownloadManager.Query().setFilterById(downloadId)
+    //     val cursor: Cursor = downloadManager.query(query)
+    //     if (cursor.moveToFirst()) {
+    //         val columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+    //         if (DownloadManager.STATUS_SUCCESSFUL == cursor.getInt(columnIndex)) {
+    //             val uriString = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
+    //             val pdfFile = File(Uri.parse(uriString).path!!)
+    //             addLog("DOWNLOAD", "PDF 文件下载成功，路径: ${pdfFile.absolutePath}")
+    //         } else {
+    //             addLog("DOWNLOAD", "PDF 文件下载失败")
+    //         }
+    //     }
+    //     cursor.close()
+    // }
+}
