@@ -1,8 +1,10 @@
-/** @ts-ignore */
 import React, { useState, useEffect, useRef } from "react"
 import { invoke } from "@tauri-apps/api/core"
-import "./App.css"
+import { Space, Button, Input, Toast, Form, Picker, Cascader } from "antd-mobile"
 import Vconsole from "vconsole"
+import { setting } from "./setting"
+import { RightOutline, UploadOutline } from "antd-mobile-icons"
+import './App.css'
 
 new Vconsole()
 // 定义打印机类型
@@ -10,416 +12,144 @@ interface Printer {
   device_name: string
   product_name: string
 }
-
-// 定义照片信息类型
-interface PhotoInfo {
-  path: string
-  uri: string
-  status?: string
-  message?: string
-}
-
-// 定义USB设备信息类型
-interface UsbDeviceInfo {
-  device_name: string
-  vendor_id: number
-  product_id: number
-  device_class: number
-  device_protocol: number
-  manufacturer_name?: string
-  product_name?: string
-  serial_number?: string
-}
-
-function App() {
-  // 状态管理
-  const [printers, setPrinters] = useState<Printer[]>([])
-  const [selectedPrinter, setSelectedPrinter] = useState<string>("")
-  const selPrinter = useRef<string>("")
-  const [printContent, setPrintContent] = useState<string>(
-    "<h1>测试打印内容</h1><p>这是一个测试打印文档。</p>"
-  )
-  const [isSilentPrint, setIsSilentPrint] = useState<boolean>(false)
-  const [photoUri, setPhotoUri] = useState<string | null>(null)
-  const [isCapturing, setIsCapturing] = useState<boolean>(false)
-  const [captureMessage, setCaptureMessage] = useState<string>("")
-  const [usbDevices, setUsbDevices] = useState<UsbDeviceInfo[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
-  const [message, setMessage] = useState<string>("")
-  const [printLogs, setPrintLogs] = useState<string[]>([])
+function App(props: any) {
+  const [printList, setPrintList] = useState<any>([])
+  const [setPrint, setSetPrint] = useState<any>("")
+  const [host, setHost] = useState<string>(setting.host)
+  const [sseHost, setSseHost] = useState<string>(setting.sseHost)
+  const [clientId, setClientId] = useState<string>(setting.clientId)
+  const printUrl = useRef<string>("")
+  const [visible, setVisible] = useState<boolean>(false)
 
   // 获取连接的打印机列表
   const fetchPrinters = async () => {
     try {
-      console.log("正在获取打印机列表..........")
-      setLoading(true)
-      setMessage("正在获取打印机列表...")
+      Toast.show({
+        icon: "loading",
+        content: "加载中…",
+      })
       const result = await invoke<Printer[]>("get_usb_devices")
-      setPrinters(result)
-      console.log(result, result.length, "result-33-----------")
-      if (result.length > 0) {
-        // // 设置默认打印机
-        // const defaultPrinter = result.find((p) => p.is_default) || result[0]
-        setSelectedPrinter(result[0].device_name)
-        selPrinter.current = result[0].device_name
-      } else {
-        setPrinters([])
-        setSelectedPrinter('')
-        selPrinter.current = ''
+      if (result && result.length > 0) {
+        setPrintList(result)
+        setSetPrint(result[0].device_name)
       }
-      setMessage(`找到 ${result.length} 台打印机`)
-    } catch (error) {
-      console.error("获取打印机列表失败:", error)
-      setMessage(`获取打印机列表失败: ${error}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-  const handlePrintWindow = async () => {
-    console.log(selPrinter.current, 'selectedPrinter----------')
-    if (!selPrinter.current) {
-      setMessage("请先选择打印机")
-      return
-    }
-    try {
-      console.log("点击打印", window)
-      setPrintLogs([]) // 清空之前的日志
-      const response = await invoke<string>("print_document", {
-        devicePath: selPrinter.current  // 使用实际的设备路径
+      Toast.show({
+        icon: "success",
+        content: "获取打印机列表成功",
       })
-      const result = JSON.parse(response)
-      
-      console.log("打印结果:", result)
-      setMessage(result.message || "打印成功")
-      if (result.logs) {
-        setPrintLogs(result.logs)
-      }
     } catch (error) {
-      console.error("打印失败:", error)
-      setMessage(`打印失败: ${error}`)
-    }
-  }
-  // 打印文档
-  const handlePrint = async () => {
-    console.log(selPrinter.current, 'selectedPrinter----------')
-    if (!selPrinter.current) {
-      setMessage("请先选择打印机")
-      return
-    }
-    try {
-      setLoading(true)
-      setMessage("正在打印...")
-      setPrintLogs([]) // 清空之前的日志
-
-      const response = await invoke<string>("print_document", {
-        devicePath: selPrinter.current  // 使用实际的设备路径
+      setPrintList([])
+      Toast.show({
+        icon: "error",
+        content: "获取打印机列表失败",
       })
-      const result = JSON.parse(response)
-      
-      console.log("打印结果:", result)
-      setMessage(result.message || "打印成功")
-      if (result.logs) {
-        setPrintLogs(result.logs)
-      }
-    } catch (error) {
-      console.error("打印失败:", error)
-      setMessage(`打印失败: ${error}`)
-    } finally {
-      setLoading(false)
     }
   }
 
-  // 获取USB设备列表
-  const fetchUsbDevices = async () => {
-    try {
-      setLoading(true)
-      setMessage("正在获取USB设备列表...")
-      const result = await invoke<UsbDeviceInfo[]>("get_usb_devices")
-      setUsbDevices(result)
-      setMessage(`找到 ${result.length} 个USB设备`)
-    } catch (error) {
-      console.error("获取USB设备失败:", error)
-      setMessage(`获取USB设备失败: ${error}`)
-    } finally {
-      setLoading(false)
-    }
+  const handlePrint = () => {
+    printUrl.current = "http://192.168.120.178:8080/test.pdf"
   }
-
-  // 轮询获取拍照结果
-  const pollPhotoResult = async () => {
-    try {
-      const result = await invoke<PhotoInfo>("get_photo_result")
-      setCaptureMessage(result.message || "")
-
-      if (result.status === "completed" && result.uri) {
-        setPhotoUri(result.uri)
-        setIsCapturing(false)
-        setMessage("拍照完成！")
-        return true // 停止轮询
-      } else if (result.status === "in_progress") {
-        return false // 继续轮询
-      } else {
-        // 处理错误或其他状态
-        setIsCapturing(false)
-        setMessage(`拍照失败: ${result.message || "未知错误"}`)
-        return true // 停止轮询
-      }
-    } catch (error) {
-      console.error("获取拍照结果失败:", error)
-      setIsCapturing(false)
-      setMessage(`获取拍照结果失败: ${error}`)
-      return true // 停止轮询
-    }
-  }
-
-  // 拍照
-  const handleTakePhoto = async () => {
-    try {
-      setLoading(true)
-      setMessage("正在启动相机...")
-      setIsCapturing(true)
-      setCaptureMessage("")
-      setPhotoUri(null)
-
-      const photo = await invoke<PhotoInfo>("take_photo")
-      console.log(photo, "photo-----------------")
-
-      if (photo.status === "camera_launched") {
-        setMessage(photo.message || "相机已启动")
-        setLoading(false)
-
-        // 开始轮询获取结果
-        const pollInterval = setInterval(async () => {
-          const shouldStop = await pollPhotoResult()
-          if (shouldStop) {
-            clearInterval(pollInterval)
-          }
-        }, 1000) // 每秒检查一次
-
-        // 设置超时，避免无限轮询
-        setTimeout(() => {
-          clearInterval(pollInterval)
-          if (isCapturing) {
-            setIsCapturing(false)
-            setMessage("拍照超时，请重试")
-          }
-        }, 30000) // 30秒超时
-      } else if (photo.uri) {
-        // 直接获得了结果
-        setPhotoUri(photo.uri)
-        setMessage("拍照成功")
-        setIsCapturing(false)
-      } else {
-        setMessage(photo.message || "拍照失败")
-        setIsCapturing(false)
-      }
-    } catch (error) {
-      console.error("拍照失败:", error)
-      setMessage(`拍照失败: ${error}`)
-      setIsCapturing(false)
-    } finally {
-      if (!isCapturing) {
-        setLoading(false)
-      }
-    }
-  }
-
-  const handleClearLogs = () => {
-    setPrintLogs([]);
-    setMessage("");
-  };
-
-  const handlePrintSel = () => {
-    let printerSelect: any = document.getElementById('printerSelect');
-    console.log(printerSelect, 'printerSelect==========')
-    if (printerSelect) {
-      setSelectedPrinter(printerSelect.value)
-      selPrinter.current = printerSelect.value
-    }
-  }
-  // 组件挂载时获取打印机列表
   useEffect(() => {
     fetchPrinters()
   }, [])
 
   return (
-    <div className="container">
-      <h1>打印和拍照应用</h1>
-
-      {/* 打印机选择区域 */}
-      <div className="card">
-        <h2>打印机设置</h2>
-        <button onClick={fetchPrinters} disabled={loading}>
-          刷新打印机列表
-        </button>
-        <button onClick={handlePrintWindow}>点击打印</button>
-        <div className="form-group">
-          <label htmlFor="printerSelect">选择打印机:
+    <div>
+      <Form layout="horizontal">
+        <Form.Item
+          label="设备ID："
+          extra={
+            <Button
+              onClick={() => {
+                window.location.reload()
+              }}
+            >
+              保存
+            </Button>
+          }
+        >
+          <Input
+            value={clientId}
+            type="number"
+            placeholder="请输入设备ID"
+            onChange={(val: any) => {
+              setClientId(val)
+              window.localStorage.setItem("clientId", val)
+            }}
+          />
+        </Form.Item>
+        <Form.Item
+          label="本地打印机："
+        >
           <select
             id="printerSelect"
-            value={selectedPrinter}
-            onChange={() => handlePrintSel()}
+            value={setPrint}
+            onChange={(e: any) => {
+              setSetPrint(e.target.value)
+            }}
           >
-            {printers.length === 0 && <option value="">无可用打印机</option>}
-            {printers.map((printer: any) => (
+            {printList.length === 0 && <option value="">无可用打印机</option>}
+            {printList.map((printer: any) => (
               <option key={printer.product_name} value={printer.device_name}>
                 {printer.product_name} 
               </option>
             ))}
           </select>
-          </label>
-        </div>
-      </div>
-
-      {/* 打印内容区域 */}
-      <div className="card">
-        <h2>打印内容</h2>
-        <div className="form-group">
-          <label>HTML内容:</label>
-          <textarea
-            value={printContent}
-            onChange={(e) => setPrintContent(e.target.value)}
-            rows={5}
-            disabled={loading}
-          />
-        </div>
-        <div className="checkbox-group">
-          <input
-            type="checkbox"
-            id="silentPrint"
-            checked={isSilentPrint}
-            onChange={(e) => setIsSilentPrint(e.target.checked)}
-            disabled={loading}
-          />
-          <label htmlFor="silentPrint">静默打印（无需确认）</label>
-        </div>
-        <button
-          onClick={handlePrint}
-          // disabled={loading || printers.length === 0}
-        >
-          打印文档
-        </button>
-      </div>
-
-      {/* USB设备区域 */}
-      <div className="card">
-        <h2>USB设备管理</h2>
-        <button onClick={fetchUsbDevices} disabled={loading}>
-          刷新USB设备列表
-        </button>
-        <div className="usb-devices-list">
-          {usbDevices.length === 0 ? (
-            <p>未找到USB设备</p>
-          ) : (
-            <div>
-              <h3>连接的USB设备 ({usbDevices.length})</h3>
-              {usbDevices.map((device, index) => (
-                <div key={index} className="usb-device-item">
-                  <div className="device-name">
-                    <strong>{device.device_name}</strong>
-                  </div>
-                  <div className="device-details">
-                    <p>
-                      厂商ID: 0x{device.vendor_id.toString(16).toUpperCase()}
-                    </p>
-                    <p>
-                      产品ID: 0x{device.product_id.toString(16).toUpperCase()}
-                    </p>
-                    <p>设备类别: {device.device_class}</p>
-                    {device.manufacturer_name && (
-                      <p>制造商: {device.manufacturer_name}</p>
-                    )}
-                    {device.product_name && (
-                      <p>产品名称: {device.product_name}</p>
-                    )}
-                    {device.serial_number && (
-                      <p>序列号: {device.serial_number}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 拍照区域 */}
-      <div className="card">
-        <h2>拍照功能</h2>
-        <button onClick={handleTakePhoto} disabled={loading || isCapturing}>
-          {isCapturing ? "拍照中..." : "拍照"}
-        </button>
-
-        {isCapturing && (
-          <div className="capture-status">
-            <p>{captureMessage || "请使用相机拍照，完成后返回应用"}</p>
-          </div>
-        )}
-
-        {photoUri && (
-          <div className="photo-preview">
-            <h3>照片预览</h3>
-            <img
-              src={photoUri}
-              alt="拍照预览"
-              style={{ maxWidth: "100%", height: "auto" }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* 打印日志区域 */}
-      {printLogs.length > 0 && (
-        <div className="card">
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '10px'
-          }}>
-            <h2>打印日志</h2>
-            <button
-              onClick={handleClearLogs}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#ff4d4f',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
+        </Form.Item>
+        
+        <Form.Item
+          label="服务端地址："
+          extra={
+            <Button
+              onClick={() => {
+                window.location.reload()
               }}
-              onMouseOver={e => e.currentTarget.style.backgroundColor = '#ff7875'}
-              onMouseOut={e => e.currentTarget.style.backgroundColor = '#ff4d4f'}
             >
-              清空日志
-            </button>
-          </div>
-          <div className="log-container" style={{
-            maxHeight: '300px',
-            overflowY: 'auto',
-            padding: '10px',
-            backgroundColor: '#f5f5f5',
-            borderRadius: '4px',
-            marginTop: '10px'
+              保存
+            </Button>
+          }
+        >
+          <Input
+            value={host}
+            type="number"
+            placeholder="请输入服务端地址"
+            onChange={(e: any) => {
+              setHost(e.target.value)
+              window.localStorage.setItem("host", e.target.value);
+            }}
+          />
+        </Form.Item>
+        <Form.Item
+          label="SSE地址："
+          extra={
+            <Button
+              onClick={() => {
+                window.location.reload()
+              }}
+            >
+              保存
+            </Button>
+          }
+        >
+          <Input
+            value={sseHost}
+            type="number"
+            placeholder="请输入SSE地址"
+            onChange={(e: any) => {
+              setSseHost(e.target.value)
+              window.localStorage.setItem("sseHost", e.target.value);
+            }}
+          />
+        </Form.Item>
+        <Form.Item>
+          <Button block color='primary' fill='solid' onClick={() => {
+            handlePrint()
           }}>
-            {printLogs.map((log, index) => (
-              <div key={index} style={{
-                padding: '4px 0',
-                borderBottom: '1px solid #eee',
-                fontSize: '14px',
-                fontFamily: 'monospace'
-              }}>
-                {log}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 状态消息 */}
-      {message && <div className="message">{message}</div>}
+            立即打印
+          </Button>
+        </Form.Item>
+      </Form>
     </div>
   )
 }
-
 export default App
