@@ -60,15 +60,16 @@ function App(props: any) {
       const result: any = await invoke<Printer[]>("download_pdf", {
         url: printUrl.current
       })
-      console.log(result, 'result000000000')
+      console.log(JSON.parse(result), 'result000000000')
+      
+      const resultObj = JSON.parse(result)
       setTimeout(async () => {
-        const resultObj = JSON.parse(result)
         const response = await invoke<string>("print_document", {
           devicePath: setPrint,  // 使用实际的设备路径
-          uri: `${resultObj.logs[0]}.pdf`,
+          uri: `${resultObj.logs[0]}`,
         })
         console.log(JSON.parse(response), 'response000000000')
-      }, 2000);
+      }, 1000);
       
     } catch (error) {
       console.log(error, 'error000000')

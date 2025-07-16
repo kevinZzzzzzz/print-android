@@ -409,18 +409,73 @@ async fn call_android_download_method(url: String) -> Result<String, String> {
     Ok(response)
 }
 
+#[tauri::command]
+async fn delete_file(del_url: String) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        call_android_delete_method(del_url).await
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("桌面端暂不支持删除功能".to_string())
+    }
+}
+
+#[cfg(target_os = "android")]
+async fn call_android_delete_method(del_url: String) -> Result<String, String> {
+    use jni::objects::JObject;
+    
+    // 获取当前的JNI环境和Activity
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("Failed to get JavaVM: {}", e))?;
+    
+    let mut env = vm.attach_current_thread()
+        .map_err(|e| format!("Failed to attach thread: {}", e))?;
+    
+    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    
+    // 将 Rust String 转换为 Java String
+    let j_url = env.new_string(&del_url)
+        .map_err(|e| format!("Failed to create Java string: {}", e))?;
+    
+    // 调用Android的deleteFile方法并获取返回值
+    let result = env.call_method(
+        &activity,
+        "delPDFFile",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        &[(&j_url).into()]
+    ).map_err(|e| format!("Failed to call delPDFFile method: {}", e))?;
+
+    // 获取返回的字符串
+    let jstring_result = result.l()
+        .map_err(|e| format!("Failed to get result object: {}", e))?;
+    
+    let response = if jstring_result.is_null() {
+        "开始删除".to_string()
+    } else {
+        env.get_string(&jstring_result.into())
+            .map_err(|e| format!("Failed to get response string: {}", e))?
+            .to_string_lossy()
+            .to_string()
+    };
+
+    Ok(response)
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             greet,
-            // print_document,
+            delete_file,
             get_connected_printers,
             get_usb_devices,
             take_photo,
             get_photo_result,
             print_document,
-            download_pdf // 添加下载方法
+            download_pdf, // 添加下载方法
+            
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

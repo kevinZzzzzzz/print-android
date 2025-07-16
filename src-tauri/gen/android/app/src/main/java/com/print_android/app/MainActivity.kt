@@ -299,7 +299,10 @@ class MainActivity : TauriActivity() {
             }
 
             // 读取PDF文件
-            val file = File(Environment.getExternalStorageDirectory(), uri)
+            // val file = File(Environment.getExternalStorageDirectory(), uri)
+            // 获取下载完的路径
+            val downloadPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val file = File(downloadPath, uri)
             if (!file.exists()) {
                 return createJsonResponse("文件不存在：${file.absolutePath}", logs)
             }
@@ -347,7 +350,7 @@ class MainActivity : TauriActivity() {
             }
 
             // 执行静默打印
-            performSilentPrint(connection, outEndpoint, inEndpoint, fileBytes)
+            performSilentPrint(connection, outEndpoint, inEndpoint, fileBytes, uri)
             
             addLog("SUCCESS", "静默打印完成")
             result = createJsonResponse("静默打印成功", logs)
@@ -378,7 +381,8 @@ class MainActivity : TauriActivity() {
         connection: UsbDeviceConnection,
         outEndpoint: UsbEndpoint,
         inEndpoint: UsbEndpoint,
-        fileBytes: ByteArray
+        fileBytes: ByteArray,
+        uri: String
     ) {
         addLog("PRINT", "开始发送PDF数据到打印机")
 
@@ -406,11 +410,32 @@ class MainActivity : TauriActivity() {
         }
 
         addLog("PRINT", "PDF数据发送完成，总计: ${fileBytes.size} 字节")
+        delPDFFile(uri)
         
         // 等待打印机处理
         Thread.sleep(1000)
     }
 
+      /**
+       * 删除 文件
+       * @param url  文件的本地地址
+       * @return 下载任务的 ID
+       */
+      private fun delPDFFile(url: String): String {
+        try {
+            val downloadPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val file = File(downloadPath, url)
+            if (!file.exists()) {
+                return createJsonResponse("文件不存在：${file.absolutePath}", logs)
+            } else {
+                file.delete()
+            }
+            return createJsonResponse("开始删除文件", emptyList())
+        } catch (e: Exception) {
+            addLog("DOWNLOAD", "删除文件失败: ${e.message}")
+            return createJsonResponse("删除文件失败: ${e.message}", emptyList())
+        }
+    }
 /**
  * 查找指定方向的USB端点
  * @param intf USB接口
