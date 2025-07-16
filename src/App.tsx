@@ -15,6 +15,7 @@ interface Printer {
 function App(props: any) {
   const [printList, setPrintList] = useState<any>([])
   const [setPrint, setSetPrint] = useState<any>("")
+  const printTemp = useRef<any>("")
   const [host, setHost] = useState<string>(setting.host)
   const [sseHost, setSseHost] = useState<string>(setting.sseHost)
   const [clientId, setClientId] = useState<string>(setting.clientId)
@@ -32,6 +33,7 @@ function App(props: any) {
       if (result && result.length > 0) {
         setPrintList(result)
         setSetPrint(result[0].device_name)
+        printList.current = result[0].device_name
       }
       Toast.show({
         icon: "success",
@@ -47,15 +49,14 @@ function App(props: any) {
   }
 
   const handlePrint = async () => {
-    console.log(setPrint, 'setPrint000000000')
-    if (setPrint === "") {
+    if (printList.current === "") {
       Toast.show({
         icon: "error",
         content: "请选择打印机",
       })
       return
     }
-    printUrl.current = "http://192.168.120.178:8080/test.pdf"
+    // printUrl.current = "http://192.168.120.178:8080/test.pdf"
     try {
       const result: any = await invoke<Printer[]>("download_pdf", {
         url: printUrl.current
@@ -65,7 +66,7 @@ function App(props: any) {
       const resultObj = JSON.parse(result)
       setTimeout(async () => {
         const response = await invoke<string>("print_document", {
-          devicePath: setPrint,  // 使用实际的设备路径
+          devicePath: printList.current,  // 使用实际的设备路径
           uri: `${resultObj.logs[0]}`,
         })
         console.log(JSON.parse(response), 'response000000000')
@@ -76,12 +77,55 @@ function App(props: any) {
     }
     
   }
+  
+  const handleParams = (param) => {
+    let str = "";
+    for (const key in param) {
+      if (Object.prototype.hasOwnProperty.call(param, key)) {
+        str += `${key}=${param[key]}&`;
+      }
+    }
+    return str.slice(0, -1);
+  };
+  const handleSSE = (lSseHost, lHost, lClientId) => {
+    if (!lSseHost) return false;
+    // const eventSource = new EventSource(`${window.location.origin}/api/sse`);
+    try {
+      const eventSource = new EventSource(`${lSseHost}?clientId=${lClientId}`);
+      eventSource.onopen = () => {
+        console.log("Connected to SSE server");
+      };
+      eventSource.onmessage = (event) => {
+        console.log(event, 'event0000000')
+        if (!event.data) return false;
+        const { params, uri } = JSON.parse(event.data);
+        // const url = `${lHost}${uri}?${handleParams(params)}`;
+        const url = `${lHost}/test.pdf`;
+        printUrl.current = url;
+        handlePrint();
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("Error111:", JSON.stringify(err));
+      };
+    } catch (error) {
+      console.log("error", error);
+    }
+  };
   useEffect(() => {
+    const localHost = window.localStorage.getItem("host") || setting.host || null;
+    const localSseHost = window.localStorage.getItem("sseHost") || setting.sseHost || null;
+    const localClientId = window.localStorage.getItem("clientId") || setting.clientId || null;
+    setHost(localHost);
+    setSseHost(localSseHost);
+    setClientId(localClientId);
     fetchPrinters()
+    handleSSE(localSseHost, localHost, localClientId);
   }, [])
 
   return (
     <div>
+      <h1>Print Android</h1>
       <Form layout="horizontal">
         <Form.Item
           label="设备ID："
