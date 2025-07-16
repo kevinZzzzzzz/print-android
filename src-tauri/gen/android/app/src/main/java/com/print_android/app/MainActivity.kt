@@ -410,6 +410,7 @@ class MainActivity : TauriActivity() {
         }
 
         addLog("PRINT", "PDF数据发送完成，总计: ${fileBytes.size} 字节")
+        // 删除文件
         delPDFFile(uri)
         
         // 等待打印机处理
