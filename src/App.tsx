@@ -99,8 +99,8 @@ function App(props: any) {
         console.log(event, 'event0000000')
         if (!event.data) return false;
         const { params, uri } = JSON.parse(event.data);
-        // const url = `${lHost}${uri}?${handleParams(params)}`;
-        const url = `${lHost}/test.pdf`;
+        const url = `${lHost}${uri}?${handleParams(params)}`;
+        // const url = `${lHost}/test.pdf`;
         printUrl.current = url;
         handlePrint();
       };
